@@ -1,0 +1,46 @@
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+secrets/
+*.secret
+*.secrets.*
+credentials*.json
+service-account*.json
+
+# Local databases and dumps
+*.sqlite
+*.db
+*.dump
+*.sql.gz
+supabase/.temp/
+supabase/.branches/
+
+# Tooling state
+.wrangler/
+.dev/
+.mf/
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+*.log
+.DS_Store
+Thumbs.db
+
+# Agent and graph tooling (local state; publish deliberately, not by accident)
+graphify-out/cache/
+graphify-out/.graphify_*
+.claude/settings.local.json
+.claude/projects/

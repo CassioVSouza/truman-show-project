@@ -1,0 +1,22 @@
+# Gitleaks configuration (not yet run in this repo; verify before relying on it).
+title = "Truman Show Project"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "truman-admin-token-assignment"
+description = "ADMIN_TOKEN or service key assigned a literal value"
+regex = '''(?i)(admin_token|supabase_service_key|gemini_api_key|groq_api_key|tavily_api_key)\s*[:=]\s*["']?[A-Za-z0-9_\-\.]{16,}'''
+tags = ["key", "truman"]
+
+[allowlist]
+description = "Fake fixtures and templates"
+paths = [
+  '''\.env\.example$''',
+  '''docs/12-security-and-secrets\.md$''',
+]
+regexes = [
+  '''test-key-not-real''',
+  '''REDACTED''',
+]

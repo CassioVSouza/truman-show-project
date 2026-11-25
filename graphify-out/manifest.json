@@ -1,0 +1,98 @@
+{
+  "docs/04-data-model.sql": {
+    "mtime": 1795645635.674311,
+    "seen": 1795646434.297514,
+    "ast_hash": "3b298df0e286dfdc7312f7c5bd16e78a",
+    "semantic_hash": "3b298df0e286dfdc7312f7c5bd16e78a"
+  },
+  "packages/contracts/package.json": {
+    "mtime": 1795644376.362527,
+    "seen": 1795646434.29752,
+    "ast_hash": "a66a4ee3f3b89471a19141414c2b8856",
+    "semantic_hash": "a66a4ee3f3b89471a19141414c2b8856"
+  },
+  "packages/contracts/src/index.ts": {
+    "mtime": 1795645635.3331306,
+    "seen": 1795646434.2975228,
+    "ast_hash": "a6abe9ea1478e6d332cf540f4e171dac",
+    "semantic_hash": "a6abe9ea1478e6d332cf540f4e171dac"
+  },
+  "CLAUDE.md": {
+    "mtime": 1795646126.4337113,
+    "seen": 1795646434.297524,
+    "ast_hash": "2896004893c342a1cc897dcb8a5b2bd8",
+    "semantic_hash": "2896004893c342a1cc897dcb8a5b2bd8"
+  },
+  "README.md": {
+    "mtime": 1795645815.769267,
+    "seen": 1795646434.297525,
+    "ast_hash": "9b1997f453bbf1a5150f1d33c9d6690b",
+    "semantic_hash": "9b1997f453bbf1a5150f1d33c9d6690b"
+  },
+  "docs/01-vision-and-principles.md": {
+    "mtime": 1795645605.7081764,
+    "seen": 1795646434.2975264,
+    "ast_hash": "247a9de27f7b3ce094d28dad8bf5a6e9",
+    "semantic_hash": "247a9de27f7b3ce094d28dad8bf5a6e9"
+  },
+  "docs/02-architecture.md": {
+    "mtime": 1795645606.7577307,
+    "seen": 1795646434.2975273,
+    "ast_hash": "5a3ac881b60bc679fe54b5d22a99ff19",
+    "semantic_hash": "5a3ac881b60bc679fe54b5d22a99ff19"
+  },
+  "docs/03-contracts.md": {
+    "mtime": 1795645607.0967038,
+    "seen": 1795646434.2975283,
+    "ast_hash": "75fa9cb80d789bd7b4ad2152b46aa1cc",
+    "semantic_hash": "75fa9cb80d789bd7b4ad2152b46aa1cc"
+  },
+  "docs/05-free-tier-budget.md": {
+    "mtime": 1795645637.0425594,
+    "seen": 1795646434.297529,
+    "ast_hash": "da1048ae7db7e22c4d2eb736102e2f60",
+    "semantic_hash": "da1048ae7db7e22c4d2eb736102e2f60"
+  },
+  "docs/06-lifecycle-and-roadmap.md": {
+    "mtime": 1795645662.6900723,
+    "seen": 1795646434.2975302,
+    "ast_hash": "5ec5eb8425e4335ff9e2ae35f2229a0d",
+    "semantic_hash": "5ec5eb8425e4335ff9e2ae35f2229a0d"
+  },
+  "docs/07-risks-and-open-questions.md": {
+    "mtime": 1795645814.9881918,
+    "seen": 1795646434.2975311,
+    "ast_hash": "27c015bfa4422ca0999560c5ec968193",
+    "semantic_hash": "27c015bfa4422ca0999560c5ec968193"
+  },
+  "docs/08-embodied-feelings-and-understanding.md": {
+    "mtime": 1795645605.3232317,
+    "seen": 1795646434.2975323,
+    "ast_hash": "89d804288a3ded534c588e52e6b35c9d",
+    "semantic_hash": "89d804288a3ded534c588e52e6b35c9d"
+  },
+  "docs/09-logging-search-and-frontend-menus.md": {
+    "mtime": 1795645638.0587845,
+    "seen": 1795646434.2975335,
+    "ast_hash": "81a1e2ec57f22ce6fd15d5a7090757f8",
+    "semantic_hash": "81a1e2ec57f22ce6fd15d5a7090757f8"
+  },
+  "docs/10-body-mind-survival-and-world.md": {
+    "mtime": 1795645604.8024795,
+    "seen": 1795646434.2975345,
+    "ast_hash": "6bb2313de30023c065cb992eaefa6265",
+    "semantic_hash": "6bb2313de30023c065cb992eaefa6265"
+  },
+  "docs/11-persona-and-behaviour.md": {
+    "mtime": 1795645814.5012023,
+    "seen": 1795646434.2975354,
+    "ast_hash": "20437684fae91954943fb816e86cf960",
+    "semantic_hash": "20437684fae91954943fb816e86cf960"
+  },
+  "docs/DECISIONS.md": {
+    "mtime": 1795646126.0089457,
+    "seen": 1795646434.2975368,
+    "ast_hash": "728a25d28204b6670d80c5c189718aa0",
+    "semantic_hash": "728a25d28204b6670d80c5c189718aa0"
+  }
+}
