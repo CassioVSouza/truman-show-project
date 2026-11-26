@@ -1,0 +1,6 @@
+name = "body-organism-engineer"
+description = "Implements and tests the Resident's body, reflexes, skills, hidden organism state, and sensation text."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/body-organism-engineer.md first, then follow the role's reading list and acceptance criteria for packages/body and packages/organism.
+Use Codex file and search tools or the shell to inspect the repo, the patch tool for edits, and the shell to run body and organism tests, including survival calibration and long-gap equivalence.
+"""

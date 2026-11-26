@@ -207,6 +207,25 @@ export function addWound(
   return wound;
 }
 
+/** Quality of sleep 0..1: open ground, cold, damp and wind erode it; cabin/fire-warmed rest keeps it high. */
+export function restQuality(
+  s: BodyState,
+  env: BodyEnvironment,
+  E: number,
+  cfg: BodyConfig,
+): number {
+  const open = 1 - clamp(env.rest_cover ?? 1, 0, 1);
+  const cold = clamp((cfg.neutralLowE - E) / cfg.restColdSpanC, 0, 1);
+  const damp = clamp(cfg.restWetWeight * Math.max(s.wetness, env.rain * open), 0, 1);
+  const gust = cfg.restWindWeight * env.wind * open;
+  const discomfort = clamp(cold + damp + gust, 0, 1);
+  return clamp(
+    1 - cfg.restOpenPenalty * open - cfg.restDiscomfortMax * discomfort,
+    cfg.restMinQuality,
+    1,
+  );
+}
+
 function stepOnce(
   s: BodyState,
   env: BodyEnvironment,
@@ -265,7 +284,8 @@ function stepOnce(
     s.hydration -
       cfg.hydrationDrainPerH * (asleep ? 0.6 : 0.7 + 0.3 * effort) * hot * (1 + 0.3 * fever) * h,
   );
-  if (asleep) s.stamina = Math.min(100, s.stamina + cfg.sleepRestorePerH * h);
+  const rq = asleep ? restQuality(s, env, E, cfg) : 1;
+  if (asleep) s.stamina = Math.min(100, s.stamina + cfg.sleepRestorePerH * rq * h);
   else {
     const rate =
       effort < 1
@@ -274,7 +294,7 @@ function stepOnce(
     s.stamina = clamp(s.stamina + (rate - 1.5 * s.shiver) * h, 0, 100);
   }
   s.sleep_pressure = clamp(
-    s.sleep_pressure + (asleep ? -cfg.sleepPressureDropPerH : cfg.sleepPressureBuildPerH) * h,
+    s.sleep_pressure + (asleep ? -cfg.sleepPressureDropPerH * rq : cfg.sleepPressureBuildPerH) * h,
     0,
     1,
   );
@@ -368,7 +388,8 @@ function stepOnce(
     left.push(c);
   }
   s.conditions = left;
-  if (s.core_temp < cfg.chillCoreC) s.chill_min += dt;
+  if (s.core_temp < cfg.chillCoreC)
+    s.chill_min += dt * (1 + (asleep ? cfg.restChillMult * (1 - (env.rest_cover ?? 1)) : 0));
   else s.chill_min = Math.max(0, s.chill_min - 0.5 * dt);
   if (s.chill_min >= cfg.coldOnsetChillMin && !s.conditions.some((c) => c.name === "cold")) {
     addCondition(s, "cold", 0.5, 480, "exposure", ev);
@@ -407,7 +428,7 @@ function stepOnce(
   if (s.core_temp < cfg.hypothermiaBelowC) mark(s, "hypothermia");
   if (s.core_temp > cfg.heatstrokeAboveC) mark(s, "hyperthermia");
   let regen = 0;
-  if (total === 0 && met) regen = cfg.healthRegenPerH * h * (asleep ? 1.5 : 1);
+  if (total === 0 && met) regen = cfg.healthRegenPerH * h * (asleep ? 1 + 0.5 * rq : 1);
   s.health = Math.min(100, s.health + regen - total);
 
   // ---------- reflexes and early-wake edges ----------
@@ -661,6 +682,12 @@ export function bodyEnvironmentFromWorld(
     rain: env.wetness_rate,
     daylight: env.daylight,
     shelter: 0,
+    rest_cover:
+      env.shelter === "cabin"
+        ? 1
+        : env.shelter === "canopy"
+          ? Math.min(0.6, env.shelter_quality ?? 0.3)
+          : 0,
     fire_warmth: Math.max(0, env.fire_heat_c / cfg.fireWarmC),
   };
 }

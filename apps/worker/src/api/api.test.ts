@@ -59,6 +59,44 @@ const entry = (id: number, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+describe("viewer heartbeat (decision 42)", () => {
+  const post = (body: string) =>
+    get("/api/viewers/beat", { method: "POST", body, headers: { "content-type": "text/plain" } });
+  const tok = "abcdefghijklmnop1234";
+
+  test("hashes the token, returns the count, never stores the raw token", async () => {
+    const db = new FakeRpc({ api_viewer_beat: 3 });
+    const r = await handleApi(post(tok), mk(db));
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(await r.json()).toEqual({ viewers: 3 });
+    expect(db.calls).toHaveLength(1);
+    const h = db.calls[0]!.args["p_token_hash"] as string;
+    expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(db.calls)).not.toContain(tok);
+  });
+  test("bad token is 400 and never reaches the db; count is at least 1", async () => {
+    const db = new FakeRpc({ api_viewer_beat: 0 });
+    expect((await handleApi(post("short"), mk(db))).status).toBe(400);
+    expect((await handleApi(post("bad token with spaces!!"), mk(db))).status).toBe(400);
+    expect(db.calls).toHaveLength(0);
+    expect(await (await handleApi(post(tok), mk(db))).json()).toEqual({ viewers: 1 });
+  });
+  test("rate limited per client", async () => {
+    const db = new FakeRpc({ api_viewer_beat: 2 });
+    const ctx = mk(db, { beatLimiter: new RateLimiter(2, 60_000) });
+    const codes: number[] = [];
+    for (let i = 0; i < 3; i++) codes.push((await handleApi(post(tok), ctx)).status);
+    expect(codes).toEqual([200, 200, 429]);
+    expect(db.count("api_viewer_beat")).toBe(2);
+  });
+  test("it is the only write: other POSTs stay 405", async () => {
+    const db = new FakeRpc();
+    expect((await handleApi(get("/api/log", { method: "POST" }), mk(db))).status).toBe(405);
+    expect((await handleApi(get("/api/viewers/beat", { method: "PUT" }), mk(db))).status).toBe(405);
+  });
+});
+
 describe("public API: read only", () => {
   test("only GET, HEAD and OPTIONS; no write route exists", async () => {
     const db = new FakeRpc();

@@ -6,7 +6,7 @@ import { NODE_DEFS, TARGET_WORDS, WORLD_CONFIG, ITEM_DEFS, type WorldConfig } fr
 import { nearestFire } from "./fire";
 import { describeStack, findItem, foodEffects, invAdd, invCount, invRemove } from "./items";
 import { dist, insideCabin, nearestOnPolyline } from "./map";
-import { planWalk, type WalkPlan } from "./path";
+import { planWalk, planWalkNear, type WalkPlan } from "./path";
 import { nodeItem } from "./resources";
 import { rngFrom, strHash } from "./rng";
 import { mapOf } from "./world";
@@ -69,6 +69,7 @@ export function moveTo(
 ): ActionResult {
   const map = mapOf(w, cfg);
   const plan = planWalk(map, a.pos, to, opts, cfg);
+  if (!plan.reached) return fail(w, a, "You cannot find a clear way there.");
   const dest = plan.points[plan.points.length - 1] as Vec;
   const phrase = to === "spring" ? "the spring" : STATION_PHRASE[to];
   return {
@@ -111,16 +112,25 @@ export function gather(
   );
   const usable = all.filter((n) => n.amount >= 1).sort((p, q) => dist(p, a.pos) - dist(q, a.pos));
   if (!all.length) return fail(w, a, "You look around but find nothing like that close by.", 2);
-  const node = usable[0];
-  if (!node)
+  if (usable.length === 0)
     return fail(w, a, "What there is here has been picked over; nothing is ready to take.", 3);
+  const map = mapOf(w, cfg);
+  const minimum = mode === "fish" ? map.riverWidth / 2 + 0.5 : 0;
+  let chosen: { node: ResourceNode; walk: WalkPlan } | undefined;
+  for (const node of usable) {
+    const walk = planWalkNear(map, a.pos, node, cfg.reach, cfg, minimum);
+    if (!walk.reached) continue;
+    chosen = { node, walk };
+    break;
+  }
+  if (!chosen) return fail(w, a, "You cannot find a clear way to reach it.");
+  const { node, walk } = chosen;
 
   const def = NODE_DEFS[node.kind];
-  const walkM = Math.max(0, dist(node, a.pos) - cfg.reach);
-  const walkMin = walkM / cfg.walk.speed / 60;
+  const walkMin = walk.minutes;
   const rng = rngFrom(w.seed, w.t, strHash(node.id), invCount(a.inventory, def.item));
   const skill = sk(a, def.skill);
-  const here: Actor = { ...a, pos: { x: node.x, z: node.z } };
+  const here: Actor = { ...a, pos: walk.points[walk.points.length - 1]! };
 
   if (node.lookalike && def.lookalikeItem && mode === "gather" && rng() < rc.maxAvoid * skill) {
     return {
@@ -131,6 +141,7 @@ export function gather(
         walkMin + 5,
         { avoided: true },
       ),
+      walk,
     };
   }
 
@@ -146,15 +157,18 @@ export function gather(
   let units = Math.floor(expected + rng());
   units = Math.min(units, Math.floor(node.amount));
   if (units <= 0) {
-    return fail(
-      w,
-      here,
-      mode === "fish"
-        ? "You wait and watch the water, but catch nothing."
-        : "You search for a while but come away with nothing.",
-      walkMin + mins,
-      { gathered: 0 },
-    );
+    return {
+      ...fail(
+        w,
+        here,
+        mode === "fish"
+          ? "You wait and watch the water, but catch nothing."
+          : "You search for a while but come away with nothing.",
+        walkMin + mins,
+        { gathered: 0 },
+      ),
+      walk,
+    };
   }
   const used = Math.min(
     mins,
@@ -172,6 +186,7 @@ export function gather(
     world,
     actor: { ...here, inventory: inv },
     facts: { gathered: units, item, node: node.id, kind: node.kind, work: mode, skill: def.skill },
+    walk,
   };
 }
 export const chop = (
@@ -198,7 +213,7 @@ function waterSource(
   a: Actor,
   text: string,
   cfg: WorldConfig,
-): { src: WaterSrc; at: Vec } | null {
+): { src: WaterSrc; at: Vec; minDistance: number } | null {
   const map = mapOf(w, cfg);
   const t = text.toLowerCase();
   const options: { src: WaterSrc; at: Vec; d: number }[] = [
@@ -217,21 +232,26 @@ function waterSource(
   pool.sort((p, q) => p.d - q.d);
   const best = pool[0];
   if (!best) return null;
-  // stand at the bank, not in the water
-  const dx = a.pos.x - best.at.x;
-  const dz = a.pos.z - best.at.z;
-  const l = Math.hypot(dx, dz) || 1;
-  const off =
+  // Reach to the water from the bank, or the edge of the raised spring basin.
+  const minDistance =
     best.src === "river"
       ? map.riverWidth / 2 + 0.5
       : best.src === "pool"
         ? map.pool.radius + 0.5
-        : 1;
-  const stand =
-    best.src === "pool"
-      ? { x: map.pool.x + (dx / l) * off, z: map.pool.z + (dz / l) * off }
-      : { x: best.at.x + (dx / l) * off, z: best.at.z + (dz / l) * off };
-  return { src: best.src, at: stand };
+        : cfg.walk.springRadius + cfg.walk.radius;
+  return { src: best.src, at: best.at, minDistance };
+}
+
+function approachWater(
+  w: WorldState,
+  a: Actor,
+  s: NonNullable<ReturnType<typeof waterSource>>,
+  cfg: WorldConfig,
+): WalkPlan {
+  const map = mapOf(w, cfg);
+  const waterRadius =
+    s.src === "pool" ? map.pool.radius : s.src === "river" ? map.riverWidth / 2 : 0;
+  return planWalkNear(map, a.pos, s.at, waterRadius + cfg.reach, cfg, s.minDistance);
 }
 
 const jarOf = (inv: Inventory): { fill: number; quality: string } | null => {
@@ -299,16 +319,18 @@ export function drink(
         : "You see no water close enough to drink from.",
       2,
     );
-  const walkMin = Math.max(0, dist(a.pos, s.at) - cfg.reach) / cfg.walk.speed / 60;
+  const walk = approachWater(w, a, s, cfg);
+  if (!walk.reached) return fail(w, a, "You cannot find a clear way to reach the water.");
   const ill = SRC_ILL(cfg)[s.src] * relief;
   const word = s.src === "spring" ? "the spring" : s.src === "river" ? "the river" : "the pool";
   return {
     ok: true,
-    minutes: walkMin + wc.drinkMinutes,
+    minutes: walk.minutes + wc.drinkMinutes,
     text: `You kneel and drink from ${word}.`,
     world: w,
-    actor: { ...a, pos: s.at },
+    actor: { ...a, pos: walk.points[walk.points.length - 1]! },
     facts: { hydration: wc.sip, contamination: ill, boiled: false, source: s.src },
+    walk,
   };
 }
 
@@ -324,16 +346,22 @@ export function fillJar(
   const s = waterSource(w, a, source, cfg);
   if (!s || s.src === "rain")
     return fail(w, a, "You see no water close enough to fill it from.", 2);
-  const walkMin = Math.max(0, dist(a.pos, s.at) - cfg.reach) / cfg.walk.speed / 60;
+  const walk = approachWater(w, a, s, cfg);
+  if (!walk.reached) return fail(w, a, "You cannot find a clear way to reach the water.");
   const q = s.src === "spring" ? "clean" : s.src;
   const mixed = jar.fill > 0 && jar.quality !== q && q === "clean" ? jar.quality : q;
   return {
     ok: true,
-    minutes: walkMin + cfg.water.fillMinutes,
+    minutes: walk.minutes + cfg.water.fillMinutes,
     text: "You fill the jar.",
     world: w,
-    actor: { ...a, pos: s.at, inventory: withJar(a.inventory, cfg.water.jarDrinks, mixed) },
+    actor: {
+      ...a,
+      pos: walk.points[walk.points.length - 1]!,
+      inventory: withJar(a.inventory, cfg.water.jarDrinks, mixed),
+    },
     facts: { source: s.src },
+    walk,
   };
 }
 

@@ -1,9 +1,15 @@
 import type { Event, SearchResponse, Snapshot } from "@truman/contracts";
 import "./styles.css";
+import { ViewerBeat, getViewerToken } from "./api/viewerBeat";
 import { createViewerApiClient, type SnapshotFeedResult, type StatusPayload } from "./api/client";
 import { stationLabel, t, translateDynamic, type UiLang } from "./i18n";
 import { WorldScene, type CameraMode } from "./scene/worldScene";
-import { evaluateTimeline, getTimelineBounds, type TimelineState } from "./state/timeline";
+import {
+  evaluateTimeline,
+  getTimelineBounds,
+  TIMELINE_SAMPLE_MS,
+  type TimelineState,
+} from "./state/timeline";
 import { clear, el, formatDateTime } from "./ui/dom";
 import { renderLabTab, type LabTab } from "./ui/labViews";
 import { renderLifeTab, type LifeTab } from "./ui/lifeViews";
@@ -71,6 +77,41 @@ class ViewerApp {
     this.bindGlobalKeys();
     void this.refreshFeed();
     this.startPlaybackClock();
+    this.startViewerBeat();
+  }
+
+  private viewersEl: HTMLElement = el("span", { class: "badge badge-viewers", role: "status" });
+  private viewerCount: number | null = null;
+
+  private startViewerBeat(): void {
+    this.viewersEl.hidden = true;
+    if (!this.api.apiBase) return; // demo mode: no count
+    let store: Storage | null = null;
+    try {
+      store = window.localStorage;
+    } catch {
+      store = null;
+    }
+    const beat = new ViewerBeat({
+      apiBase: this.api.apiBase,
+      token: getViewerToken(store),
+      isVisible: () => document.visibilityState === "visible",
+      onCount: (n) => {
+        this.viewerCount = n;
+        this.renderViewers();
+      },
+    });
+    beat.start();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void beat.beat();
+    });
+  }
+
+  private renderViewers(): void {
+    this.viewersEl.hidden = this.viewerCount === null;
+    if (this.viewerCount !== null) {
+      this.viewersEl.textContent = `● ${this.viewerCount} ${t(this.lang, "viewersWatching")}`;
+    }
   }
 
   private bindGlobalKeys(): void {
@@ -196,7 +237,7 @@ class ViewerApp {
 
       if (this.snapshot) {
         if (!this.sceneInitialized) this.initScene();
-        this.worldScene?.setSeed(this.snapshot.world.seed);
+        this.worldScene?.applyFeedGeometry(this.snapshot, this.events);
         const { startMs, endMs } = getTimelineBounds(this.snapshot, this.events);
         if (!this.isLive) {
           this.playheadMs = Math.min(endMs, Math.max(startMs, this.playheadMs));
@@ -238,7 +279,7 @@ class ViewerApp {
         }
       }
       this.renderFrame();
-    }, 250);
+    }, TIMELINE_SAMPLE_MS);
   }
 
   private renderChrome(): void {
@@ -275,6 +316,7 @@ class ViewerApp {
         el("span", null, t(this.lang, "appTitle")),
         el("span", { class: "badge" }, t(this.lang, "readOnlyBadge")),
         this.feedBadgeEl,
+        this.viewersEl,
       ),
       el(
         "div",
@@ -481,7 +523,9 @@ class ViewerApp {
     const snapshot = this.snapshot;
     if (!snapshot) return;
     const evaluated = evaluateTimeline(snapshot, this.events, this.playheadMs);
-    this.worldScene?.applyTimelineState(evaluated);
+    const speed = SPEEDS[this.speedIdx] ?? 1;
+    const playbackRate = this.isLive && this.feedState !== "demo" ? 1 : speed;
+    this.worldScene?.applyTimelineState(evaluated, this.isPlaying ? playbackRate : 0);
 
     this.renderThought(evaluated);
     this.renderAction(evaluated);
@@ -495,7 +539,7 @@ class ViewerApp {
       {
         isLive: this.isLive,
         isPlaying: this.isPlaying,
-        speed: SPEEDS[this.speedIdx] ?? 1,
+        speed,
         events: this.events,
         evaluated,
         lang: this.lang,

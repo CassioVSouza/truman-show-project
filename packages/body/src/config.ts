@@ -10,6 +10,14 @@ export interface BodyConfig {
   staminaDrainAwakePerH: number;
   staminaRestPerH: number; // awake and resting
   sleepRestorePerH: number;
+  /** Rest-quality model: how open ground, cold, damp and wind degrade sleep (config only, never shown). */
+  restOpenPenalty: number; // quality lost sleeping with no cover at all, even in mild weather
+  restDiscomfortMax: number; // max extra loss from cold/wet/wind
+  restColdSpanC: number; // degrees below neutral for full cold discomfort
+  restWetWeight: number;
+  restWindWeight: number;
+  restMinQuality: number;
+  restChillMult: number; // extra chill accrual while asleep uncovered
   sleepPressureBuildPerH: number;
   sleepPressureDropPerH: number;
   healthRegenPerH: number;
@@ -87,6 +95,13 @@ export const DEFAULT_BODY_CONFIG: BodyConfig = {
   staminaDrainAwakePerH: 3.5,
   staminaRestPerH: 2,
   sleepRestorePerH: 12,
+  restOpenPenalty: 0.1,
+  restDiscomfortMax: 0.35,
+  restColdSpanC: 12,
+  restWetWeight: 0.5,
+  restWindWeight: 0.3,
+  restMinQuality: 0.3,
+  restChillMult: 0.3,
   sleepPressureBuildPerH: 1 / 16,
   sleepPressureDropPerH: 0.14,
   healthRegenPerH: 1,

@@ -128,7 +128,32 @@ export const WORLD_CONFIG = {
       },
     } as Record<string, { out: number; radius: number; counts: Partial<Record<NodeKind, number>> }>,
   },
-  walk: { speed: 1.3 }, // m/s
+  walk: {
+    speed: 1.3, // m/s
+    radius: 0.4, // horizontal clearance for the Resident, including limbs
+    detourPad: 0.04,
+    detourMargins: [4, 12],
+    cornerCount: 8,
+    nodeRadii: {
+      fruit_tree: 0.32,
+      berry_bush: 0.7,
+      stone_outcrop: 1.1,
+      flint_nodule: 0.65,
+      deadwood: 0.43,
+      woodpile: 0.43,
+    } as Partial<Record<NodeKind, number>>,
+    springRadius: 1.55,
+    hearthRadius: 0.52,
+    cabin: {
+      wallHalfThickness: 0.09,
+      doorHalfOpening: 0.51,
+      furniture: {
+        desk: { x: 0.575, z: 0.325 },
+        bed: { x: 0.525, z: 0.825 },
+        journal_table: { x: 0.425, z: 0.29 },
+      },
+    },
+  },
   reach: 3, // metres: things you can touch
   nearRadius: 14, // metres: "nearby" for environment flags
   gatherSearchRadius: 30,
@@ -218,6 +243,8 @@ export const WORLD_CONFIG = {
     edgeRange: 40,
     mirrorMinLight: 0.2,
     mirrorDistance: 4,
+    // where-am-I line (decision 41): radii in metres
+    place: { nearCabin: 6, atWater: 3, clearing: 8, nearbyMax: 150 },
   },
   occupancy: { cell: 2, half: 40 },
 };

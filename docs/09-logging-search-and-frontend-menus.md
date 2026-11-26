@@ -30,7 +30,7 @@ Technical content is isolated from life content. The Lab is a separate section (
 - **Memories**: what it knows, with source URL and the body state it had when learning it.
 - **Discoveries**: pages visited, searches made.
 - **Self**: beliefs about itself over time; the `phase` label.
-- **Timeline**: day-by-day scrubber of everything.
+- **Timeline**: day-by-day scrubber of everything. On desktop, the timeline stays visible at the bottom of the browser viewport.
 - **Search** (global bar, always visible).
 
 ### Lab (technical)
@@ -50,7 +50,7 @@ Technical content is isolated from life content. The Lab is a separate section (
 Language: whole UI toggles EN/PT-BR (doc 02, translation layer). Lab content stays English except UI labels.
 
 ## Public API additions
-`GET /api/search`, `GET /api/log?kind=&category=&after=`, `GET /api/context/:entryId`, `GET /api/lab/organism?from=&to=`, `GET /api/lab/traces?...`. These read-only routes run through the Worker and use the edge cache. The viewer polls the independent Pages host for `live.json` and interpolates the timeline locally. The bundle contains event timing, public display data and log IDs. Thoughts, journal text and web content are fetched on demand through the Worker so hide flags apply to future reads.
+`GET /api/search`, `GET /api/log?kind=&category=&after=`, `GET /api/context/:entryId`, `GET /api/lab/organism?from=&to=`, `GET /api/lab/traces?...`, plus `POST /api/viewers/beat` (anonymous live viewers count, see doc 03). These routes run through the Worker and use the edge cache. The viewer polls the independent Pages host for `live.json` and interpolates the timeline locally. The bundle contains event timing, public display data and log IDs. Thoughts, journal text and web content are fetched on demand through the Worker so hide flags apply to future reads.
 
 ## Storage plan (so "log everything" survives the free tier)
 Rough sizing: ~288 LLM calls/day x ~10 KB prompt+response ~ 3 MB/day ~ 90 MB/month for traces alone, against a ~500 MB free database. Therefore:

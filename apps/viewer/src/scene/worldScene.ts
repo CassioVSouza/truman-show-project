@@ -1,11 +1,33 @@
+import type { Event, Snapshot } from "@truman/contracts";
 import { generateMap, insideCabin, type WorldMap } from "@truman/world";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { CharacterPoseAnim, TimelineState, TimeOfDay } from "../state/timeline";
+import {
+  interpolateWaypoints,
+  TIMELINE_SAMPLE_MS,
+  type CharacterPoseAnim,
+  type TimelineState,
+  type TimeOfDay,
+} from "../state/timeline";
+import {
+  intersectsSceneryCorridor,
+  sceneryCorridors,
+  type SceneryFootprint,
+} from "./sceneryClearance";
 
 export type CameraMode = "follow" | "cabin" | "world";
 
 const CABIN_FLOOR_HEIGHT = 0.16;
+const RESOURCE_CANOPY_CLEARANCE = 1.95;
+const HIDDEN_SCENERY = new THREE.Matrix4()
+  .makeScale(0.00001, 0.00001, 0.00001)
+  .setPosition(0, -1000, 0);
+
+interface SceneryBatch {
+  meshes: readonly THREE.InstancedMesh[];
+  footprints: readonly SceneryFootprint[];
+  hiddenTransforms: Map<number, THREE.Matrix4[]>;
+}
 
 interface CharacterRig {
   root: THREE.Group;
@@ -128,10 +150,12 @@ export class WorldScene {
   private precipPoints: THREE.Points | null = null;
   private precipKind: "none" | "rain" | "snow" = "none";
 
-  private currentSeed: number | null = null;
+  private readonly sceneryBatches: SceneryBatch[] = [];
   private currentMap: WorldMap | null = null;
   private cameraMode: CameraMode = "cabin";
   private latestState: TimelineState | null = null;
+  private latestStateReceivedAt = 0;
+  private playbackRate = 0;
   private rafId: number | null = null;
   private lastFrameMs = performance.now();
   private animClock = 0;
@@ -192,12 +216,43 @@ export class WorldScene {
     this.startLoop();
   }
 
-  setSeed(seed: number): void {
-    if (this.currentSeed === seed) return;
-    this.currentSeed = seed;
-    const map = generateMap(seed);
-    this.currentMap = map;
-    this.rebuildWorld(map);
+  applyFeedGeometry(snapshot: Snapshot, events: readonly Event[]): void {
+    const { seed } = snapshot.world;
+    if (this.currentMap?.seed !== seed) {
+      this.currentMap = generateMap(seed);
+      this.rebuildWorld(this.currentMap);
+    }
+    const corridors = sceneryCorridors(this.currentMap, snapshot.resident.pose, events);
+    for (const { meshes, footprints, hiddenTransforms } of this.sceneryBatches) {
+      footprints.forEach((footprint, index) => {
+        const hidden = intersectsSceneryCorridor(footprint, corridors);
+        const transforms = hiddenTransforms.get(index);
+        if (hidden && !transforms) {
+          hiddenTransforms.set(
+            index,
+            meshes.map((mesh) => {
+              const original = new THREE.Matrix4();
+              mesh.getMatrixAt(index, original);
+              mesh.setMatrixAt(index, HIDDEN_SCENERY);
+              mesh.instanceMatrix.needsUpdate = true;
+              return original;
+            }),
+          );
+        } else if (!hidden && transforms) {
+          meshes.forEach((mesh, meshIndex) => {
+            mesh.setMatrixAt(index, transforms[meshIndex]!);
+            mesh.instanceMatrix.needsUpdate = true;
+          });
+          hiddenTransforms.delete(index);
+        }
+      });
+    }
+  }
+
+  private registerScenery(footprints: SceneryFootprint[], ...meshes: THREE.InstancedMesh[]): void {
+    // Keep the original instance bounds so restoring a hidden prop cannot clip it at the frustum.
+    for (const mesh of meshes) mesh.computeBoundingSphere();
+    this.sceneryBatches.push({ footprints, meshes, hiddenTransforms: new Map() });
   }
 
   setCameraMode(mode: CameraMode): void {
@@ -215,8 +270,10 @@ export class WorldScene {
     }
   }
 
-  applyTimelineState(state: TimelineState): void {
+  applyTimelineState(state: TimelineState, playbackRate: number): void {
     this.latestState = state;
+    this.latestStateReceivedAt = performance.now();
+    this.playbackRate = playbackRate;
     this.applyAtmosphere(state.timeOfDay, state.weather);
     this.applyFireVisual(state.fire.state);
   }
@@ -259,6 +316,7 @@ export class WorldScene {
     this.fireFlames = [];
     this.fireLight = null;
     this.waterMeshes = [];
+    this.sceneryBatches.length = 0;
 
     const rng = makeSeededRng(map.seed);
 
@@ -763,7 +821,7 @@ export class WorldScene {
     this.worldGroup.add(waterMesh);
     this.waterMeshes.push(waterMesh);
 
-    // 3. Instanced shoreline pebbles & boulders along both banks (keeping river station clear)
+    // 3. Instanced shoreline pebbles & boulders along both banks
     const rockCount = 68;
     const rockGeo = new THREE.DodecahedronGeometry(0.45, 0);
     const rockMat = new THREE.MeshStandardMaterial({
@@ -775,6 +833,7 @@ export class WorldScene {
     const dummy = new THREE.Object3D();
     const rockColor = new THREE.Color();
     const riverStation = map.stations.river;
+    const footprints: SceneryFootprint[] = [];
     let placed = 0;
 
     for (let i = 0; i < rockCount * 2 && placed < rockCount; i++) {
@@ -795,6 +854,7 @@ export class WorldScene {
       dummy.scale.set(s * (0.9 + rng() * 0.4), s * 0.55, s * (0.85 + rng() * 0.35));
       dummy.updateMatrix();
       rocks.setMatrixAt(placed, dummy.matrix);
+      footprints.push({ x: rx, z: rz, radius: 0.45 * Math.max(dummy.scale.x, dummy.scale.z) });
 
       rockColor.setHex(rng() > 0.4 ? 0x74797d : 0x8b8476);
       rockColor.offsetHSL(0, 0, (rng() - 0.5) * 0.08);
@@ -805,6 +865,7 @@ export class WorldScene {
     rocks.castShadow = true;
     rocks.receiveShadow = true;
     this.worldGroup.add(rocks);
+    this.registerScenery(footprints, rocks);
   }
 
   private buildOrganicDiscGeometry(
@@ -896,6 +957,7 @@ export class WorldScene {
     const stones = new THREE.InstancedMesh(stoneGeo, stoneMat, stoneCount);
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
+    const footprints: SceneryFootprint[] = [];
     let placed = 0;
 
     for (let i = 0; i < stoneCount; i++) {
@@ -920,6 +982,11 @@ export class WorldScene {
       dummy.scale.set(sx, sy, sz);
       dummy.updateMatrix();
       stones.setMatrixAt(placed, dummy.matrix);
+      footprints.push({
+        x: x + dummy.position.x,
+        z: z + dummy.position.z,
+        radius: 0.55 * Math.max(sx, sy, sz),
+      });
 
       col.setHex(rng() > 0.35 ? 0x6f757b : 0x5c6b5a);
       stones.setColorAt(placed, col);
@@ -929,6 +996,7 @@ export class WorldScene {
     stones.castShadow = true;
     stones.receiveShadow = true;
     poolGroup.add(stones);
+    this.registerScenery(footprints, stones);
 
     this.worldGroup.add(poolGroup);
   }
@@ -959,13 +1027,25 @@ export class WorldScene {
       roughness: 0.9,
       flatShading: true,
     });
-    for (let i = 0; i < 7; i++) {
+    const pebbleGeo = new THREE.DodecahedronGeometry(1, 0);
+    const pebbles = new THREE.InstancedMesh(pebbleGeo, pebbleMat, 7);
+    const dummy = new THREE.Object3D();
+    const footprints: SceneryFootprint[] = [];
+    for (let i = 0; i < pebbles.count; i++) {
       const a = (i / 7) * Math.PI * 2 + rng() * 0.4;
-      const p = new THREE.Mesh(new THREE.DodecahedronGeometry(0.24 + rng() * 0.14, 0), pebbleMat);
-      p.position.set(Math.cos(a) * 1.15, 0.12, Math.sin(a) * 1.15);
-      p.scale.y = 0.65;
-      springGroup.add(p);
+      const radius = 0.24 + rng() * 0.14;
+      dummy.position.set(Math.cos(a) * 1.15, 0.12, Math.sin(a) * 1.15);
+      dummy.scale.set(radius, radius * 0.65, radius);
+      dummy.updateMatrix();
+      pebbles.setMatrixAt(i, dummy.matrix);
+      footprints.push({
+        x: map.spring.x + dummy.position.x,
+        z: map.spring.z + dummy.position.z,
+        radius,
+      });
     }
+    springGroup.add(pebbles);
+    this.registerScenery(footprints, pebbles);
 
     this.worldGroup.add(springGroup);
   }
@@ -1005,13 +1085,14 @@ export class WorldScene {
       const col = new THREE.Color();
       fruitTrees.forEach((t, i) => {
         const s = 0.9 + rng() * 0.35;
-        dummy.position.set(t.x, 0.9 * s, t.z);
+        const canopyLift = Math.max(0, RESOURCE_CANOPY_CLEARANCE - (2.4 - 1.15 * 0.92) * s);
+        dummy.position.set(t.x, 0.9 * s + canopyLift * 0.5, t.z);
         dummy.rotation.set(0, rng() * Math.PI * 2, 0);
-        dummy.scale.set(s, s, s);
+        dummy.scale.set(s, s + canopyLift / 1.8, s);
         dummy.updateMatrix();
         trunks.setMatrixAt(i, dummy.matrix);
 
-        dummy.position.set(t.x, 2.4 * s, t.z);
+        dummy.position.set(t.x, 2.4 * s + canopyLift, t.z);
         dummy.scale.set(s * 1.08, s * 0.92, s * 1.08);
         dummy.updateMatrix();
         crowns.setMatrixAt(i, dummy.matrix);
@@ -1163,6 +1244,7 @@ export class WorldScene {
     rng: () => number,
     minScale: number,
     maxScale: number,
+    decorative = false,
   ): void {
     if (positions.length === 0) return;
 
@@ -1190,31 +1272,35 @@ export class WorldScene {
     const greens = [0x264e2e, 0x2e5b34, 0x356438, 0x22462a, 0x3d6b3b];
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
+    const footprints: SceneryFootprint[] = [];
 
     positions.forEach((p, i) => {
       const s = minScale + rng() * (maxScale - minScale);
       const hStretch = 0.9 + rng() * 0.35;
+      const canopyLift = decorative
+        ? 0
+        : Math.max(0, RESOURCE_CANOPY_CLEARANCE - (2.05 - 0.85 * hStretch) * s);
       const rotY = rng() * Math.PI * 2;
       const shade = greens[Math.floor(rng() * greens.length)] ?? 0x2e5b34;
 
       dummy.rotation.set(0, rotY, 0);
 
-      dummy.position.set(p.x, 0.95 * s, p.z);
-      dummy.scale.set(s, s, s);
+      dummy.position.set(p.x, 0.95 * s + canopyLift * 0.5, p.z);
+      dummy.scale.set(s, s + canopyLift / 1.9, s);
       dummy.updateMatrix();
       trunks.setMatrixAt(i, dummy.matrix);
 
-      dummy.position.set(p.x, (2.05 + 0.2 * hStretch) * s, p.z);
+      dummy.position.set(p.x, (2.05 + 0.2 * hStretch) * s + canopyLift, p.z);
       dummy.scale.set(s, s * hStretch, s);
       dummy.updateMatrix();
       tier1.setMatrixAt(i, dummy.matrix);
 
-      dummy.position.set(p.x, (3.15 + 0.45 * hStretch) * s, p.z);
+      dummy.position.set(p.x, (3.15 + 0.45 * hStretch) * s + canopyLift, p.z);
       dummy.rotation.y = rotY + 0.45;
       dummy.updateMatrix();
       tier2.setMatrixAt(i, dummy.matrix);
 
-      dummy.position.set(p.x, (4.15 + 0.65 * hStretch) * s, p.z);
+      dummy.position.set(p.x, (4.15 + 0.65 * hStretch) * s + canopyLift, p.z);
       dummy.rotation.y = rotY + 0.9;
       dummy.updateMatrix();
       tier3.setMatrixAt(i, dummy.matrix);
@@ -1225,9 +1311,11 @@ export class WorldScene {
       tier2.setColorAt(i, col);
       col.offsetHSL(0, 0, 0.03);
       tier3.setColorAt(i, col);
+      if (decorative) footprints.push({ ...p, radius: 1.45 * s });
     });
 
     this.worldGroup.add(trunks, tier1, tier2, tier3);
+    if (decorative) this.registerScenery(footprints, trunks, tier1, tier2, tier3);
   }
 
   private buildValleyDetails(map: WorldMap, rng: () => number): void {
@@ -1269,7 +1357,7 @@ export class WorldScene {
       }
       if (!tooClose) outerTrees.push({ x, z });
     }
-    this.addConiferInstances(outerTrees, rng, 1.0, 1.65);
+    this.addConiferInstances(outerTrees, rng, 1.0, 1.65, true);
 
     // 2. Scattered valley boulders
     const boulderCount = 48;
@@ -1282,6 +1370,7 @@ export class WorldScene {
     const boulders = new THREE.InstancedMesh(boulderGeo, boulderMat, boulderCount);
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
+    const footprints: SceneryFootprint[] = [];
     let placed = 0;
     for (let attempt = 0; attempt < 180 && placed < boulderCount; attempt++) {
       const a = rng() * Math.PI * 2;
@@ -1295,6 +1384,7 @@ export class WorldScene {
       dummy.scale.set(s * (0.9 + rng() * 0.4), s * 0.62, s * (0.85 + rng() * 0.4));
       dummy.updateMatrix();
       boulders.setMatrixAt(placed, dummy.matrix);
+      footprints.push({ x, z, radius: 0.75 * Math.max(dummy.scale.x, dummy.scale.z) });
       col.setHex(rng() > 0.4 ? 0x6d7379 : 0x7b786e);
       boulders.setColorAt(placed, col);
       placed++;
@@ -1303,6 +1393,7 @@ export class WorldScene {
     boulders.castShadow = true;
     boulders.receiveShadow = true;
     this.worldGroup.add(boulders);
+    this.registerScenery(footprints, boulders);
 
     // 3. Instanced low-poly grass tufts
     const tuftCount = 240;
@@ -1399,6 +1490,7 @@ export class WorldScene {
     ) => {
       const inst = new THREE.InstancedMesh(geo, mountainMat, count);
       const dummy = new THREE.Object3D();
+      const footprints: SceneryFootprint[] = [];
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2 + (rng() - 0.5) * (Math.PI / count);
         const r = minR + rng() * (maxR - minR);
@@ -1409,9 +1501,15 @@ export class WorldScene {
         dummy.scale.set(w, h, w * (0.85 + rng() * 0.3));
         dummy.updateMatrix();
         inst.setMatrixAt(i, dummy.matrix);
+        footprints.push({
+          x: dummy.position.x,
+          z: dummy.position.z,
+          radius: Math.max(dummy.scale.x, dummy.scale.z) * 1.24,
+        });
       }
       inst.receiveShadow = true;
       this.worldGroup.add(inst);
+      this.registerScenery(footprints, inst);
     };
 
     // Layer 1: Inner wooded foothills
@@ -1724,7 +1822,7 @@ export class WorldScene {
     }
   }
 
-  private animateCharacter(dt: number): void {
+  private animateCharacter(now: number, dt: number): void {
     const state = this.latestState;
     if (!state) return;
 
@@ -1744,15 +1842,25 @@ export class WorldScene {
     } = this.character;
 
     const lerpAlpha = Math.min(1, dt * 6);
-    root.position.x += (state.pose.x - root.position.x) * lerpAlpha;
-    root.position.z += (state.pose.z - root.position.z) * lerpAlpha;
-
-    // Ground character cleanly on y = 0 outdoors or y = CABIN_FLOOR_HEIGHT indoors
-    const targetFloorY = this.getFloorY(root.position.x, root.position.z);
-    root.position.y += (targetFloorY - root.position.y) * Math.min(1, dt * 12);
+    // Sample the recorded polyline between timeline updates. Easing x/z toward the last
+    // sampled pose cuts across bends and can cross objects the walk routes around.
+    let target = state.pose;
+    const walk = state.walk;
+    if (walk) {
+      const elapsed = Math.max(0, Math.min(TIMELINE_SAMPLE_MS, now - this.latestStateReceivedAt));
+      const atMs = state.atMs + elapsed * this.playbackRate;
+      target = interpolateWaypoints(
+        walk.waypoints,
+        (atMs - walk.startMs) / Math.max(1, walk.endMs - walk.startMs),
+      );
+    } else if (state.poseAnim === "sleep" && state.station === "bed" && this.currentMap) {
+      // The walk ends beside the bed. The sleeping animation lies on its mattress.
+      target = { ...this.currentMap.stations.bed, heading: 0 };
+    }
+    root.position.set(target.x, this.getFloorY(target.x, target.z), target.z);
 
     // Shortest-angle heading interpolation
-    let dAngle = state.pose.heading - root.rotation.y;
+    let dAngle = target.heading - root.rotation.y;
     while (dAngle > Math.PI) dAngle -= Math.PI * 2;
     while (dAngle < -Math.PI) dAngle += Math.PI * 2;
     root.rotation.y += dAngle * lerpAlpha;
@@ -1873,7 +1981,7 @@ export class WorldScene {
       this.lastFrameMs = now;
       this.animClock += dt;
 
-      this.animateCharacter(dt);
+      this.animateCharacter(now, dt);
 
       // Flicker fire flames
       if (this.fireFlames.length > 0 && this.latestState && this.latestState.fire.state !== "out") {

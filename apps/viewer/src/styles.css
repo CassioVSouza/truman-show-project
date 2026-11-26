@@ -999,6 +999,40 @@ button {
   border-color: var(--life-accent);
 }
 
+@media (width > 900px) {
+  #app {
+    height: 100dvh;
+    min-height: 0;
+  }
+
+  .topbar,
+  .subnav-bar,
+  .timeline-bar {
+    flex-shrink: 0;
+  }
+
+  .search-drawer {
+    flex-shrink: 0;
+    max-height: 40dvh;
+    overflow-y: auto;
+  }
+
+  .live-grid {
+    grid-template-rows: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .stage-wrap,
+  .canvas-host {
+    min-height: 0;
+  }
+
+  .canvas-host {
+    position: absolute;
+    inset: 0;
+  }
+}
+
 @media (max-width: 900px) {
   .live-grid {
     grid-template-columns: 1fr;

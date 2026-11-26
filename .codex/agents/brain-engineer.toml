@@ -1,0 +1,6 @@
+name = "brain-engineer"
+description = "Implements and tests the Worker tick pipeline, LLM adapters, prompts, memory, web tools, and governor."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/brain-engineer.md first, then follow the role's reading list and acceptance criteria for the Worker's cognitive pipeline.
+Use Codex file and search tools or the shell to inspect the repo, the patch tool for edits, native web search for official provider documentation, and the shell for FakeProvider tests and the prompt leak suite.
+"""

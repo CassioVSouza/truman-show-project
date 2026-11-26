@@ -37,6 +37,8 @@ export interface BodyEnvironment {
   shelter: number; // 0..1 (roof/walls between body and weather)
   fire_warmth: number; // 0..1 (heat from a burning fire close by)
   immersion?: number; // 0..1 (body in water)
+  /** 0..1 cover from a cabin/roof/canopy for resting; undefined = unknown, treated as fully covered. */
+  rest_cover?: number;
 }
 
 export interface Activity {
@@ -148,4 +150,6 @@ export interface WorldEnvironmentLike {
   wind: number;
   wetness_rate: number;
   daylight: number;
+  shelter?: "open" | "canopy" | "cabin";
+  shelter_quality?: number;
 }

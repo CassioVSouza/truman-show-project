@@ -381,7 +381,8 @@ export async function executeAction(
   }
 
   const w0 = p.r && p.r.ok ? p.r.world : m.world;
-  const a1: Actor = p.r && p.r.ok ? p.r.actor : actor;
+  const walk = p.r?.walk;
+  const a1: Actor = p.r && (p.r.ok || walk?.reached) ? p.r.actor : actor;
   const env = bodyEnvironmentFromWorld(environmentAt(w0, a1.pos));
   const res = performAction(m.body, p.body, env, a1.skills);
   const world = advance(w0, Math.max(res.state.t, w0.t));
@@ -401,7 +402,6 @@ export async function executeAction(
   const minutes = world.t - t0;
 
   let heading = m.pos.heading;
-  const walk = p.r?.walk;
   if (walk && walk.points.length >= 2) {
     const q = walk.points[walk.points.length - 1]!;
     const prev = walk.points[walk.points.length - 2]!;
@@ -418,7 +418,7 @@ export async function executeAction(
     last_result: lastResult,
   };
   mind = { ...mind, station: nearStation(mind, mind.pos) };
-  if (action.type === "move_to") mind = { ...mind, station: action.station };
+  if (action.type === "move_to" && p.ok) mind = { ...mind, station: action.station };
 
   // body sensations of reflexes/sudden events, in body language only
   const reflexLines = renderReflexEvents(res.events, mind.organism.temperament, world.t);
@@ -441,8 +441,14 @@ export async function executeAction(
   const span = (kind: string, data: Record<string, unknown>, a = t0, b = world.t) =>
     viewer.push({ kind, t_start: isoAt(m, a), t_end: isoAt(m, Math.max(a, b)), data });
   span("thought", { text: action.thought }, t0, t0 + 0.5);
+  const workStart = Math.min(world.t, t0 + (walk?.minutes ?? 0));
   if (walk && walk.points.length >= 2)
-    span("walk", { waypoints: walk.points.map((q) => ({ x: q.x, z: q.z })), speed: walk.speed });
+    span(
+      "walk",
+      { waypoints: walk.points.map((q) => ({ x: q.x, z: q.z })), speed: walk.speed },
+      t0,
+      workStart,
+    );
   if (action.type === "write_journal") span("anim", { name: "write", station: "journal_table" });
   if (tool) span("anim", { name: "read" });
   if (p.body.type === "rest" && action.type === "rest") span("anim", { name: "rest" });
@@ -451,15 +457,23 @@ export async function executeAction(
     span("sleep_end", {}, world.t, world.t);
   }
   if (p.ok && (action.type === "eat" || action.type === "drink"))
-    span("consume", {
-      item: String(p.facts.item ?? p.facts.source ?? action.type),
-      kind: action.type,
-    });
+    span(
+      "consume",
+      {
+        item: String(p.facts.item ?? p.facts.source ?? action.type),
+        kind: action.type,
+      },
+      workStart,
+    );
   if (p.ok && p.facts.gathered !== undefined && Number(p.facts.gathered) > 0)
-    span("gather", {
-      target: String(p.facts.kind ?? "plants"),
-      gained: [{ item: String(p.facts.item), qty: Number(p.facts.gathered) }],
-    });
+    span(
+      "gather",
+      {
+        target: String(p.facts.kind ?? "plants"),
+        gained: [{ item: String(p.facts.item), qty: Number(p.facts.gathered) }],
+      },
+      workStart,
+    );
   if (!body.alive) span("death", { cause: body.cause_of_death ?? "unknown" }, world.t, world.t);
 
   return {

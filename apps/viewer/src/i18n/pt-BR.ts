@@ -6,6 +6,7 @@ export const PT_BR: Record<I18nKey, string> = {
   readOnlyBadge: "ESPECTADOR SOMENTE LEITURA",
   demoBadge: "DEMO OFFLINE",
   liveBadge: "AO VIVO",
+  viewersWatching: "assistindo",
   feedDelayedBadge: "TRANSMISSÃO ATRASADA",
   feedUnavailableBadge: "TRANSMISSÃO INDISPONÍVEL",
   feedUnavailableNotice:

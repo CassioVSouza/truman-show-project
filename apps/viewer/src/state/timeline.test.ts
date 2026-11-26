@@ -39,6 +39,38 @@ describe("evaluateTimeline", () => {
     expect(after.poseAnim).toBe("idle");
   });
 
+  it("retains replayed walk endpoints before the snapshot and uses its newer live pose", () => {
+    const snapshot = {
+      ...DEMO_SNAPSHOT,
+      generated_at: iso(20),
+      resident: {
+        ...DEMO_SNAPSHOT.resident,
+        pose: { x: 14, z: 6, heading: 1 },
+      },
+    };
+    const events: Event[] = [
+      {
+        v: SCHEMA_VERSION,
+        seq: 1,
+        t_start: iso(0),
+        t_end: iso(10),
+        actor: "resident",
+        kind: "walk",
+        data: {
+          waypoints: [
+            { x: 0, z: 0 },
+            { x: 10, z: 0 },
+          ],
+          speed: 1,
+        },
+        log_id: 1,
+      },
+    ];
+
+    expect(evaluateTimeline(snapshot, events, T0 + 15_000).pose).toMatchObject({ x: 10, z: 0 });
+    expect(evaluateTimeline(snapshot, events, T0 + 25_000).pose).toEqual(snapshot.resident.pose);
+  });
+
   it("applies anim, body physiology, thought, and world events up to atMs", () => {
     const events: Event[] = [
       {

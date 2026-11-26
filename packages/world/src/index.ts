@@ -23,9 +23,9 @@ export {
   yearDays,
 } from "./climate";
 export type { Weather, Clock } from "./climate";
-export { generateMap, dist, insideCabin } from "./map";
+export { generateMap, dist, insideCabin, nearestOnSegment } from "./map";
 export type { WorldMap } from "./map";
-export { planWalk, walkTimeline, positionAlong } from "./path";
+export { planWalk, walkTimeline, positionAlong, walkableTrailSegments } from "./path";
 export type { WalkPlan } from "./path";
 export {
   advanceInventory,

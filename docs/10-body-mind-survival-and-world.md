@@ -63,6 +63,8 @@ Ticks are 10 minutes apart; the body must not be helpless between them. Reflexes
 ## 6. Actions (macro-actions with durations)
 One decision covers a duration (e.g. forage 30 min, rest 4 h). While it runs, the engine advances the body each minute. New actions: `eat(item)`, `drink(source)`, `gather(target)`, `make_fire`, `tend_fire`, `cook(item)`, `boil_water`, `wear/remove(item)`, `treat_wound`, `sleep/rest`, `use_item`, `build/repair_shelter`, `fish`, `chop`. Phase 3 adds `craft`, `play_instrument`, `draw`.
 
+Movement uses deterministic routes around solid obstacles. Actions that require approaching resources or water stop within reach, and the viewer animates the approach from the recorded route.
+
 ## 7. Death
 Health reaching 0 ends that life: a causal death report is logged (what led to it, body timeline), the Resident is marked `dead`, the world freezes and the viewer switches to memorial/replay. Default design: **no respawn**, no scripted rescue. Whether another life may begin is your decision (doc 07).
 
