@@ -194,6 +194,8 @@ describe("place line (decision 41)", () => {
   });
   test("cabin ahead when facing it", () => {
     const w = createWorld(1);
-    expect(perceive(w, { x: 0, z: 15, heading: Math.PI }).text).toMatch(/cabin is about \d+ m (straight )?ahead/);
+    expect(perceive(w, { x: 0, z: 15, heading: Math.PI }).text).toMatch(
+      /cabin is about \d+ m (straight )?ahead/,
+    );
   });
 });

@@ -37,7 +37,8 @@ describe("menu and output format", () => {
 
 describe("place awareness (decision 41)", () => {
   test("decide prompt carries the perception and a neutral place instruction, no prohibition", () => {
-    const text = buildPrompt(cleanInput({ availableActions: menuLines(ALL_ACTIONS) })).messages[0]!.content;
+    const text = buildPrompt(cleanInput({ availableActions: menuLines(ALL_ACTIONS) })).messages[0]!
+      .content;
     const all = text;
     expect(all).toContain("[WHAT YOU SEE/HEAR]");
     expect(all).toContain("a tall tree, 6 m ahead");
@@ -46,7 +47,13 @@ describe("place awareness (decision 41)", () => {
     expect(all).not.toMatch(/do not (sleep|rest)|never (sleep|rest)/i);
   });
   test("interpreter mentions place", () => {
-    const p = buildInterpreterPrompt({ stimulus: "a", action: "b", intent: "c", expectation: "d", outcome: "e" });
+    const p = buildInterpreterPrompt({
+      stimulus: "a",
+      action: "b",
+      intent: "c",
+      expectation: "d",
+      outcome: "e",
+    });
     expect(p.system).toContain("place where the subject was");
   });
 });

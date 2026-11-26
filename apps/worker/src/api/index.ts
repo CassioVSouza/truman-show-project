@@ -145,7 +145,9 @@ async function viewerBeat(req: Request, ctx: ApiContext): Promise<Response> {
   const raw = (await req.text()).slice(0, 129);
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(raw)) return errorJson(400, "invalid token");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`viewer:${raw}`));
-  const token_hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const token_hash = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   const n = await ctx.db.rpc("api_viewer_beat", {
     p_token_hash: token_hash,
     p_window_seconds: VIEWER_WINDOW_SECONDS,
