@@ -8,7 +8,7 @@ import {
   type RawRequest,
 } from "./types";
 
-export const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite"; // config: check current free-tier models (doc 05)
+export const GEMINI_DEFAULT_MODEL = "gemini-3.5-flash-lite"; // config: check current free-tier models (doc 05)
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const REFUSAL_FINISH = new Set([
   "SAFETY",

@@ -1,4 +1,5 @@
 import type { LiveFeed } from "@truman/contracts";
+import { redactValue } from "../env";
 import type { FetchLike } from "../llm";
 import type { SnapshotWriter } from "./index";
 
@@ -17,9 +18,38 @@ export interface PagesSnapshotEnv {
   SNAPSHOT_PAGES_TOKEN?: string;
 }
 
+interface CloudflareError {
+  code?: unknown;
+  message?: unknown;
+}
+
 interface CloudflareResult {
   success: boolean;
   result?: unknown;
+  errors?: CloudflareError[];
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function cfErrorDetail(body: CloudflareResult | undefined, auth: string): string {
+  const first = Array.isArray(body?.errors) ? body.errors[0] : undefined;
+  if (!first || typeof first !== "object") return "";
+  const parts: string[] = [];
+  if (typeof first.code === "number" || typeof first.code === "string") {
+    const code = redactValue(String(first.code).trim(), auth).slice(0, 32);
+    if (code) parts.push(`code ${code}`);
+  }
+  if (typeof first.message === "string" && first.message.trim()) {
+    parts.push(redactValue(first.message.trim(), auth).slice(0, 160));
+  }
+  return parts.length > 0 ? `: ${parts.join(" ")}` : "";
 }
 
 /** Direct Upload publishes one complete asset. Cloudflare retains earlier deployment URLs. */
@@ -62,13 +92,29 @@ export function makePagesSnapshotWriter(
       headers.set("authorization", `Bearer ${auth}`);
       let response: Response;
       try {
-        response = await fetchFn(CF_API + path, { ...init, headers, signal, redirect: "error" });
-      } catch {
-        throw new Error(`Pages snapshot ${stage} request failed`);
+        // Cloudflare Workers (workerd) only accepts "follow" or "manual" (not "error").
+        response = await fetchFn(CF_API + path, { ...init, headers, signal, redirect: "manual" });
+      } catch (err) {
+        const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        const detail = redactValue(raw, auth).slice(0, 160);
+        // eslint-disable-next-line preserve-caught-error -- avoid attaching unredacted auth secrets on cause
+        throw new Error(`Pages snapshot ${stage} request failed (${detail})`);
       }
-      if (!response.ok) throw new Error(`Pages snapshot ${stage} failed (HTTP ${response.status})`);
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel().catch(() => {});
+        throw new Error(
+          `Pages snapshot ${stage} failed (unexpected redirect HTTP ${response.status})`,
+        );
+      }
       const body = (await response.json().catch(() => undefined)) as CloudflareResult | undefined;
-      if (body?.success !== true) throw new Error(`Pages snapshot ${stage} failed`);
+      if (!response.ok) {
+        throw new Error(
+          `Pages snapshot ${stage} failed (HTTP ${response.status})${cfErrorDetail(body, auth)}`,
+        );
+      }
+      if (body?.success !== true) {
+        throw new Error(`Pages snapshot ${stage} failed${cfErrorDetail(body, auth)}`);
+      }
       return body.result;
     }
 
@@ -80,9 +126,9 @@ export function makePagesSnapshotWriter(
 
     const asset = {
       key: hash,
-      value: content,
-      metadata: { contentType: "application/json; charset=utf-8" },
-      base64: false,
+      value: toBase64(bytes),
+      metadata: { contentType: "application/json" },
+      base64: true,
     };
     await cf("/pages/assets/upload", upload.jwt, "asset upload", {
       method: "POST",
@@ -98,7 +144,7 @@ export function makePagesSnapshotWriter(
     const deploy = new FormData();
     deploy.set("branch", "main");
     deploy.set("manifest", JSON.stringify({ [FEED_PATH]: hash }));
-    deploy.set("_headers", new Blob([FEED_HEADERS]), "_headers");
+    deploy.set("_headers", new Blob([FEED_HEADERS], { type: "text/plain" }), "_headers");
     await cf(`${projectPath}/deployments`, token, "deployment", { method: "POST", body: deploy });
   };
 }
