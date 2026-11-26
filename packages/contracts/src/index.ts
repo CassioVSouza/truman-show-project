@@ -189,19 +189,19 @@ export const BodyState = z.object({
   cause_of_death: z.string().nullable(),
 });
 export type BodyState = z.infer<typeof BodyState>;
-export const Skills = z.record(z.number().min(0).max(100));
+export const Skills = z.record(z.string(), z.number().min(0).max(100));
 export const InventoryItem = z.object({
   item: z.string(),
   qty: z.number(),
   condition: unit.optional(),
-  props: z.record(z.unknown()).optional(),
+  props: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const EmotionLabel = z.object({ label: z.string(), weight: unit }); // spectators/Lab only
 export const Temperament = z.object({
-  sensitivity: z.record(z.number()),
-  baselines: z.record(z.number()),
-  decay_minutes: z.record(z.number()),
+  sensitivity: z.record(z.string(), z.number()),
+  baselines: z.record(z.string(), z.number()),
+  decay_minutes: z.record(z.string(), z.number()),
   habituation_rate: z.number(),
 });
 
@@ -242,7 +242,7 @@ export const LogEntry = z.object({
   kind: LogKind,
   category: z.enum(["life", "lab"]),
   text: z.string(),
-  data: z.record(z.unknown()),
+  data: z.record(z.string(), z.unknown()),
   caused_by: z.number().int().nullable(),
   lang: z.string(),
   hidden: z.boolean(),
