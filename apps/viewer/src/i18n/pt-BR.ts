@@ -40,6 +40,7 @@ export const PT_BR: Record<I18nKey, string> = {
   seasonLabel: "Estação",
   weatherLabel: "Clima",
   phaseLabel: "Fase",
+  decisionCadenceNotice: "O Residente toma decisões a cada 10 minutos.",
 
   // Life menus (doc 09)
   navLive: "Ao Vivo",

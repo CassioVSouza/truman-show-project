@@ -37,6 +37,7 @@ export const EN = {
   seasonLabel: "Season",
   weatherLabel: "Weather",
   phaseLabel: "Phase",
+  decisionCadenceNotice: "The Resident makes decisions every 10 minutes.",
 
   // Life menus (doc 09)
   navLive: "Live",

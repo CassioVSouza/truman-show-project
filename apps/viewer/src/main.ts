@@ -406,6 +406,9 @@ class ViewerApp {
     if (!snapshot) this.thoughtOverlayEl.style.display = "none";
 
     clear(this.statusStripEl);
+    this.statusStripEl.append(
+      el("span", { class: "cadence-disclaimer" }, t(this.lang, "decisionCadenceNotice")),
+    );
     if (!snapshot) return;
     const day = this.status?.world_day ?? this.status?.day;
     const season = this.status?.season;
