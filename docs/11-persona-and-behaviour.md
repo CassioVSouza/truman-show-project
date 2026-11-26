@@ -50,3 +50,7 @@ JSON only per `DecideOutput` (doc 03). If the model breaks the world ("as an AI"
 
 ## Model settings
 Temperature 0.5-0.8 for decisions (raised with cognitive fatigue per doc 10); 0.85 for dreams; Interpreter 0.2. Interpreter prompt is separate and never contains the persona.
+
+## Leak scanner is a tripwire, not the guarantee
+
+The real guarantee that hidden state never reaches the Resident is structural: `buildPrompt` accepts only plain strings and string lists, enforced by a strict zod schema at runtime (extra keys and non-string values throw), and every string field has its delimiter markers neutralised. The leak scanner (`apps/worker/src/prompts/leak-scan.ts`) is a tripwire in tests: it catches templates or fixtures that write hidden material, a name, a gender word or forged untrusted markers into those strings. It is heuristic by design, so a passing scan never replaces the schema, and new leak shapes found in review are added to it as test cases.

@@ -23,8 +23,21 @@ Newest at the bottom. Format: decision, reason, docs affected.
 | 17 | Agent team created: liaison + 7 specialists in `.claude/agents` | Owner | `.claude/agents` |
 | 18 | Resident starts with nothing but has no limit on what it can learn or do with its learning (e.g. it may discover love); unnamed concepts are discoverable, never forbidden | Owner | 01, 08 |
 | 19 | Open-source project under Apache-2.0, English-only README/docs; strong docs and strict secret handling (doc 12, SECURITY.md, gitleaks, no secrets in git/chat) | Owner | 12, README |
+| 20 | Go-ahead for Task 0 only (verify free-tier limits against current provider pages; research, no code). 2026-11-25 | Owner | 05, 06, 07 |
+| 21 | `liaison` is also the orchestrator: it runs the specialist agents itself (Agent tool) when started as the main session agent; only for owner-approved work. 2026-11-25 | Owner | `.claude/agents/liaison.md`, CLAUDE.md |
+| 22 | Task 0 findings, owner takes recommended path (2026-11-25): (a) measure Worker CPU/subrequests in Phase 0; fallback is heavy compute in a GitHub Actions cron; batch DB writes into one RPC per tick. (b) Public data served as static snapshot files, not 4 s polling through the Worker. (c) Accept that the Gemini free tier may use prompts/outputs (Resident text is public anyway); keep Groq and Workers AI as fallbacks. `MAX_SEARCH_DAY` = 30 | Owner | 02, 05, 09 |
+| 23 | Snapshot hosting for the public live feed: test Cloudflare Pages direct-upload in Phase 0 (check the 500 builds/month cap) and decide after. Public Supabase bucket is ruled out (hard rule 5). GitHub-hosted files are the fallback. 2026-11-25 | Owner (recommended path) | 02, 05, 09 |
+| 24 | Go-ahead for Phase 0 (foundations). Parts needing accounts/keys wait for the owner to wire secrets. 2026-11-25 | Owner | 06 |
+| 25 | Own Supabase project (ref suadfgpoprtormoomqyw; base URL non-secret). The first URL given belonged to another project (ReplayEdition) and is never used. Rule 6 reading: `log_entries` and `events` strictly append-only; `decisions`, `memories` etc. stay updatable (outcomes filled later), every change still logged. Default applied 2026-11-25 because the owner did not object | Owner / liaison default | 04, 12 |
+| 26 | Go-ahead to deploy the Phase 0 Worker (empty tick, no LLM/search calls) to the owner's Cloudflare account and measure real CPU/subrequests. 2026-11-25 | Owner | 02, 05, 06 |
 
 ## Not yet decided / pending
-- Go-ahead to scaffold Phase 0.
 - Account keys wiring (via secrets, never chat).
-- Task 0 results (verified free-tier limits) may change config.
+- Before wiring memory: leak scanner (names/gender/emotion words) must scan only templated prompt parts, not Resident-authored text (e.g. "he said"). Strict schema stays the real guarantee.
+- Phase 0 status 2026-11-26: Worker deployed (cron 10 min); real tick wrote `ticks` rows (mode skipped, no_resident); CPU 2 ms, 3 subrequests (inferred). Migrations 0001-0004 on cloud (0003 closed anon execute hole, 0004 service_role grants). Confirmed on cloud: tick 3 wrote `log_entries` row 1 (kind tick), CPU 1 ms, wall 1258 ms. Failed-tick/skipped SQL tests added. qa-guardian final pass: no blockers other than that confirmation. Remaining: commit/push (owner go-ahead). Phase 0 code and real-service steps DONE; Phase 1 needs its own go-ahead.
+- Snapshot hosting: decision 23 sets the plan; final choice after the Phase 0 test.
+- Task 0 follow-up DONE 2026-11-25: Worker limits, Groq, Jina, Supabase egress verified from official pages. Still unverified: Gemini per-model RPM/RPD (read in AI Studio at setup), m2m100 on Free plan, Jina free-tier licence, Workers AI replacement models. Groq Llama 3.x retired; Groq free is ~1K RPD / 8K TPM (small prompts only).
+- Task 0 DONE 2026-11-25 (docs/05, "Verified limits"; mostly from search summaries, not the pages themselves). `MAX_SEARCH_DAY` 40 -> 30. Owner must decide on these findings:
+  1. Worker Free = 10 ms CPU per tick and 50 subrequests per invocation; heavy compute may need a GitHub Actions cron. Phase 0 must measure it.
+  2. Worker has 100k requests/day shared with viewers; public data should be static snapshots, not 4 s polling through the Worker (changes docs 02/05/09).
+  3. Gemini free tier lets Google use prompts/outputs; accept it, or lead with other providers.

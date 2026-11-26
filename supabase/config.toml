@@ -1,0 +1,10 @@
+# Minimal Supabase CLI config. Only what `supabase link` / `supabase db push` need.
+# No secrets here. The project ref is public (it is part of the project URL).
+project_id = "truman-show"
+
+[db]
+port = 54322
+major_version = 17
+
+[db.migrations]
+enabled = true

@@ -1,4 +1,4 @@
-# Gitleaks configuration (not yet run in this repo; verify before relying on it).
+# Gitleaks configuration. Fake values must contain "not-real". Verified with gitleaks 8.30.
 title = "Truman Show Project"
 
 [extend]
@@ -11,12 +11,19 @@ regex = '''(?i)(admin_token|supabase_service_key|gemini_api_key|groq_api_key|tav
 tags = ["key", "truman"]
 
 [allowlist]
-description = "Fake fixtures and templates"
+description = "Fake fixtures, templates, build output and local tool state"
+regexTarget = "match"
 paths = [
   '''\.env\.example$''',
   '''docs/12-security-and-secrets\.md$''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)graphify-out/''',
+  '''(^|/)fixtures/''',
+  '''\.(test|leak\.test|fixture-test)\.[cm]?[jt]s$''',
 ]
 regexes = [
-  '''test-key-not-real''',
+  '''not-real''',
+  '''\[redacted\]''',
   '''REDACTED''',
 ]

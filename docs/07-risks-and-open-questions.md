@@ -9,7 +9,7 @@ Unnamed/ungendered Resident, English inner life, PT-BR presentation. Open web da
 | # | Risk | Mitigation |
 |---|---|---|
 | 1 | Free-tier limits change | Provider adapter, governor, Task 0 verification |
-| 2 | Supabase free DB (~500 MB) vs logging everything | Trace archiving to R2, downsampling, size governor (doc 09) |
+| 2 | Supabase free DB (~500 MB) vs logging everything | Trace archiving to GitHub Releases, downsampling, size governor (doc 09) |
 | 3 | Supabase pauses after inactivity | Ticks keep it active; health check alerts on failed ticks |
 | 4 | Model weights know the real world ("blank slate" is leaky) | Prompt framing and citation rule only; no promise of true ignorance |
 | 5 | Model labels sensations with emotion words, may be wrong | Intended: its own interpretation. Never corrected by the system |

@@ -17,7 +17,7 @@ Read `README.md` first, then the numbered docs in `docs/`. `docs/DECISIONS.md` i
 `liaison` (owner's contact), `world-engineer`, `body-organism-engineer`, `brain-engineer`, `data-api-engineer`, `viewer-engineer`, `qa-guardian`, `ops-budget`.
 
 ## Workflow
-Owner talks to `liaison`. Liaison writes briefs; specialists implement with tests; `qa-guardian` verifies before a phase is called done; `ops-budget` owns limits, CI and deploys. Do not claim built/tested without running it.
+Owner talks to `liaison`, who is also the orchestrator (start with `claude --agent liaison`). Liaison writes briefs and runs the specialists; specialists implement with tests; `qa-guardian` verifies before a phase is called done; `ops-budget` owns limits, CI and deploys. Do not claim built/tested without running it.
 
 ## Status
 Design complete (docs 01-11). No code scaffolded yet. Next: owner go-ahead, then Task 0 (verify free-tier limits) and Phase 0.

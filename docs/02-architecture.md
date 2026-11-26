@@ -18,9 +18,10 @@
    memories, organism...             |
          |                    Cloudflare Pages: Viewer (Vite + Three.js)
          v                           ^
-   R2 (free) archive of old traces   | public spectators
+   GitHub Releases: archive of old   | public spectators
+   traces (not R2: needs a card)     | (live feed = static snapshot files)
 ```
-One Worker project serves cron and the read-only API. The browser never talks to Supabase directly (protects egress quota and keeps RLS closed). Admin routes need `ADMIN_TOKEN`.
+One Worker project serves cron and the read-only dynamic API. The live viewer feed is published by the tick as static snapshot files (decision 22; hosting chosen in Phase 0, doc 05), so spectators do not consume the Worker's 100,000 requests/day. The browser never talks to Supabase directly (protects egress quota and keeps RLS closed). Admin routes need `ADMIN_TOKEN`.
 
 ## Time model
 The server never simulates at 60 FPS. A tick produces a **timeline** of timestamped events across the 10-minute window (walk path, sit, type, thought bubble, body changes). The viewer replays and interpolates, so a visitor arriving mid-tick sees the Resident mid-action. Gaps are filled by deterministic idle behaviour (no LLM). World clock = real time; day/night follows it.
@@ -39,9 +40,10 @@ The server never simulates at 60 FPS. A tick produces a **timeline** of timestam
 10. **Tools**: search/fetch if needed; sanitize, cap size, mark untrusted.
 11. **Interpret** (LLM call 2, hidden, only for meaningful stimuli; else rule tables): appraisal + factual consequences + prediction error.
 12. **Organism update**: apply appraisal through temperament (sensitivity, habituation) -> new hidden state -> physiology -> emotion-atlas label for the Lab.
-13. **Commit** in one transaction: `log_entries` for everything (doc 09), `events`, memories (with appraisal + body snapshot), lessons, questions, goals, beliefs, `organism_samples`, `llm_traces`, `tool_calls`.
+13. **Commit** in one transaction, as **one batched RPC per tick** (Workers Free allows 50 subrequests per invocation, so no per-row writes), then publish the snapshot files: `log_entries` for everything (doc 09), `events`, memories (with appraisal + body snapshot), lessons, questions, goals, beliefs, `organism_samples`, `llm_traces`, `tool_calls`.
 14. Release lease.
 
+CPU: Workers Free gives 10 ms CPU per cron invocation (network waits excluded). Phase 0 measures real tick CPU; if the organism/body catch-up does not fit, heavy compute moves to a GitHub Actions cron (5 min minimum, may be delayed) that works on the database directly, and the Worker only makes the LLM/tool calls.
 Budget: 1-2 LLM calls per active tick, 0 for sleep/idle ticks. Sleep ticks run dream synthesis (1 call) and emotional consolidation in code.
 
 ## Components
@@ -62,7 +64,7 @@ Budget: 1-2 LLM calls per active tick, 0 for sleep/idle ticks. Sleep ticks run d
 | Viewer | 3D scene, timeline player, Life and Lab menus, i18n | `apps/viewer` |
 
 ## Providers and fallback
-`LLMProvider` order is config, e.g. `gemini -> groq -> workers-ai`. 429/quota/5xx/refusal moves to the next provider. All fail -> idle tick, status `degraded`. Provider safety settings are set to the least restrictive the API allows. Provider-level refusals cannot be fully removed, so less-restricted fallbacks are preferred when a refusal occurs (see doc 07).
+`LLMProvider` order is config, e.g. `gemini -> groq -> workers-ai`. 429/quota/5xx/refusal moves to the next provider. All fail -> idle tick, status `degraded`. The owner accepts that Gemini free-tier prompts and outputs may be used by Google (decision 22); Groq and Workers AI are fallbacks, with current non-deprecated model IDs kept in config. Provider safety settings are set to the least restrictive the API allows. Provider-level refusals cannot be fully removed, so less-restricted fallbacks are preferred when a refusal occurs (see doc 07).
 
 ## Perception instead of a server renderer
 Pure TS visibility (field of view, range, coarse occupancy grid) returns lines like `a tall tree, 6 m ahead, slightly left`. Appearance tags are shared with the viewer so what it perceives matches what spectators see. Image vision only for web images (phase 4).

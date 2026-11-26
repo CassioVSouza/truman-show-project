@@ -44,13 +44,13 @@ Technical content is isolated from life content. The Lab is a separate section (
 - **Tool calls**: searches, fetches, status codes, sizes, SSRF-guard decisions.
 - **Governor & budget**: daily usage per provider/tool, current mode.
 - **System & errors**: ticks, leases, failures, fallbacks, refusals.
-- **Raw events**: the event stream the viewer consumes.
+- **Raw events**: the event stream the viewer consumes (published as static snapshot files each tick, decision 22).
 - **Export**: download any filtered result as JSON/CSV.
 
 Language: whole UI toggles EN/PT-BR (doc 02, translation layer). Lab content stays English except UI labels.
 
 ## Public API additions
-`GET /api/search`, `GET /api/log?kind=&category=&after=`, `GET /api/context/:entryId`, `GET /api/lab/organism?from=&to=`, `GET /api/lab/traces?...`. All GET, read-only, via the Worker (never direct to the database), edge cached.
+`GET /api/search`, `GET /api/log?kind=&category=&after=`, `GET /api/context/:entryId`, `GET /api/lab/organism?from=&to=`, `GET /api/lab/traces?...`. All GET, read-only, via the Worker (never direct to the database), edge cached. These are the dynamic routes. The live viewer feed (current state plus the timeline events for the coming window) is NOT polled through the Worker every 4 s (it would exhaust the 100,000 requests/day Free quota with a few spectators): each tick publishes it as static snapshot files on a static, edge-cached host (doc 05, Spectator and search scaling), and the viewer fetches those and interpolates locally.
 
 ## Storage plan (so "log everything" survives the free tier)
 Rough sizing: ~288 LLM calls/day x ~10 KB prompt+response ~ 3 MB/day ~ 90 MB/month for traces alone, against a ~500 MB free database. Therefore:

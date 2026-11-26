@@ -43,7 +43,7 @@ Tick pipeline every 10 min (doc 02). Rhythms emerge from the body: fatigue and r
 10. Deploy Worker + Pages + Supabase; 72 h soak test.
 *Done:* 72 h unattended, budgets respected, every thought/action/idea searchable with its cause chain, hidden layer never leaks into prompts, viewer shows live mid-action state.
 
-**Phase 2 - Depth**: emotion atlas (50+ states) in Lab, affective memory reactivation, sleep consolidation + dreams, goal tree emerging from reflection, pgvector memory, trace archiving to R2, replay mode.
+**Phase 2 - Depth**: emotion atlas (50+ states) in Lab, affective memory reactivation, sleep consolidation + dreams, goal tree emerging from reflection, pgvector memory, trace archiving to GitHub Releases, replay mode.
 
 **Phase 3 - Making things**: materials + property-based validator, procedural items, craft, tool wear, small game/hunting, real weather option (Open-Meteo), hygiene, easel, instruments (Tone.js).
 

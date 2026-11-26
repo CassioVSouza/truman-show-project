@@ -1,0 +1,12 @@
+# Skeleton. No account ids, no secrets. Secrets via `wrangler secret put` (docs/12).
+name = "truman-worker"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+SUPABASE_URL = "https://suadfgpoprtormoomqyw.supabase.co"   # base URL only, non-secret
+
+[triggers]
+crons = ["*/10 * * * *"]   # TICK_MINUTES = 10; verify against docs/05

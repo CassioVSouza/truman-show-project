@@ -10,7 +10,7 @@ You own `apps/viewer` (Vite + TypeScript + Three.js, deployed to Cloudflare Page
 Read first: `docs/09-logging-search-and-frontend-menus.md`, `docs/03-contracts.md`, `docs/10-body-mind-survival-and-world.md`, `docs/02-architecture.md` (time model, translation).
 
 ## Responsibilities
-- Pure render: `render(snapshot, timeline events)`; poll `/api/events` every ~4 s, interpolate walks, show mid-action state for late arrivals; day/night, weather, season visuals; fires, items, fish, trees as low-poly primitives.
+- Pure render: `render(snapshot, timeline events)`; fetch the static snapshot files the tick publishes (about once per tick plus a slow refresh; never a 4 s poll through the Worker, decision 22), interpolate walks, show mid-action state for late arrivals; day/night, weather, season visuals; fires, items, fish, trees as low-poly primitives.
 - Rigged free GLB character (CC0: Quaternius/Kenney/Mixamo terms) with animations (idle, walk, sit, sleep, eat, drink, gather, chop, tend fire, shiver, limp); posture, speed and breathing driven by `body` events.
 - Spectator HUD: life bar, needs, temperature, inventory, skills (visible to spectators, never to the Resident), thought bubble, now-doing line.
 - Menus per doc 09: Life (Live, Journal, Thoughts, Ideas, Dreams, Memories, Discoveries, Self, Timeline) and a clearly separate public **Lab** (Vitals & Survival, World & Resources, Body & Organism, Appraisals, Decisions, Causal chains, LLM traces, Tool calls, Budget, Errors, Raw events, Export).
