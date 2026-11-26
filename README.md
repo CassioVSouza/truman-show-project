@@ -2,7 +2,7 @@
 
 **A persistent AI "Resident" that lives in a low-poly 3D cabin, learns through its senses and the open web, and has a hidden embodied emotional life. Anyone can watch it live and search everything it thought and did. Nobody can interact with it.**
 
-> **Status (work in progress).** Built and tested locally: Phase 0 (monorepo, contracts, Supabase schema, Worker skeleton, CI), Phase 1A (world, body and organism engines, 14-day policy simulation), and Phase 1B Waves 1–2 (LLM fallback chain, live tick pipeline with lease, memory v1, real web tools with fetch guard, log writer, read-only API, and the low-poly 3D viewer). Not done yet: static snapshot publishing, production deployment of the updated Worker and viewer, and the 72-hour unattended soak test. Nothing is claimed as built until it is tested.
+> **Status (work in progress).** Built and tested locally: Phase 0 (monorepo, contracts, Supabase schema, Worker skeleton, CI), Phase 1A (world, body and organism engines, 14-day policy simulation), and Phase 1B Waves 1–2 (LLM fallback, tick pipeline, memory, web tools, logs, read-only API, and 3D viewer). In Wave 3, the static snapshot publisher and viewer integration passed local checks, and a synthetic Cloudflare Pages upload verified the hosting path. Production deployment, the first live run, and the 72-hour unattended test are pending.
 
 ## What is it?
 
@@ -34,7 +34,7 @@ Read [02 Architecture](docs/02-architecture.md) for the tick pipeline and diagra
 
 ## Run it locally
 
-What works today is the engine (world, body, organism), the Worker (tick pipeline, memory, web tools, read-only API), and the 3D viewer (runs on built-in demo data offline or connects to a local Worker).
+What works today is the engine (world, body, organism), the Worker (tick pipeline, memory, web tools, read-only API), and the 3D viewer. The viewer runs on built-in demo data by default. For a live feed, set `VITE_SNAPSHOT_BASE` to the origin serving `live.json` and `VITE_API_BASE` to the Worker origin for search, context, and Lab.
 
 **Requirements:** Node 22 or newer, pnpm 12 (`corepack enable` then `corepack prepare pnpm@12.23.0 --activate`), git. Docker is needed only for the database tests.
 

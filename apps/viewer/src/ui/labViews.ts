@@ -47,7 +47,7 @@ export async function renderLabTab(
   container: HTMLElement,
   tab: LabTab,
   api: ViewerApiClient,
-  snapshot: Snapshot,
+  snapshot: Snapshot | null,
   events: readonly Event[],
   lang: UiLang,
   onInspectContext: (entryId: number) => void,
@@ -140,11 +140,12 @@ export async function renderLabTab(
       "section",
       { class: "panel-box" },
       el("h3", null, t(lang, "physiologyChannelsTitle")),
-      ...Object.entries(snapshot.resident.body).map(([k, v]) =>
+      ...Object.entries(snapshot?.resident.body ?? {}).map(([k, v]) =>
         k === "heart_rate" || k === "breath_rate"
           ? el("p", { class: "entry-sub" }, `${k.replace(/_/g, " ")}: ${Number(v).toFixed(1)}`)
           : metricBar(k, num(v)),
       ),
+      snapshot ? null : el("p", { class: "muted-note" }, t(lang, "feedUnavailableBadge")),
     );
 
     grid.append(appCard, physCard);

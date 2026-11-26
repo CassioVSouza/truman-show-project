@@ -7,6 +7,10 @@ export interface Env {
   GROQ_API_KEY?: string;
   TAVILY_API_KEY?: string;
   SUPABASE_FETCH_TIMEOUT_MS?: string;
+  /** Dedicated Direct Upload project for the public feed. The token is a Worker secret. */
+  SNAPSHOT_PAGES_ACCOUNT_ID?: string;
+  SNAPSHOT_PAGES_PROJECT?: string;
+  SNAPSHOT_PAGES_TOKEN?: string;
   /** Non-secret tuning (doc 05 defaults apply when absent). */
   GEMINI_MODEL?: string;
   GROQ_MODEL?: string;

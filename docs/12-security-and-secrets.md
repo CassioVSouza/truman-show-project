@@ -29,8 +29,10 @@ Every secret has exactly one home. If it is not in this table, it is not allowed
 | `GEMINI_API_KEY`, `GROQ_API_KEY` | Worker LLM adapter | Worker secrets | git, logs, prompts |
 | `TAVILY_API_KEY` | Worker web tool | Worker secret | git, logs, prompts |
 | `ADMIN_TOKEN` | Worker admin routes | Worker secret (owner keeps a copy in a password manager) | git, chat, URL query strings |
-| `CLOUDFLARE_API_TOKEN` | deploy workflow | GitHub Actions environment secret | Worker, git |
+| `CLOUDFLARE_API_TOKEN` | Worker deploy workflow | Protected GitHub `production` Environment secret | Actions variables, Worker, git |
 | `CLOUDFLARE_ACCOUNT_ID` | deploy workflow | GitHub Actions environment secret | git |
+| `CLOUDFLARE_PAGES_DEPLOY_TOKEN` | viewer deploy workflow | Protected GitHub `production` Environment secret | Actions variables, Worker, git |
+| `SNAPSHOT_PAGES_TOKEN` | Worker snapshot publisher | Cloudflare Worker secret | Actions variables, git, browser |
 | Release upload credential | archive workflow | the built-in `GITHUB_TOKEN` with `contents: write` for that job only (no personal access token) | git |
 
 Local development: `apps/worker/.dev.vars` (Wrangler) and `.env`, both gitignored. `.env.example` lists variable names with empty or obviously fake values; it is the only env-like file that may be committed.
@@ -60,10 +62,13 @@ Local development: `apps/worker/.dev.vars` (Wrangler) and `.env`, both gitignore
 - Workflows declare `permissions:` explicitly and default to `contents: read`.
 - Pull requests from forks run **without secrets**. Never use `pull_request_target` to check out and run fork code.
 - Deploy runs only on `main`, from a protected GitHub **Environment** holding the Cloudflare token.
+- Worker deploy, viewer deploy and runtime snapshot publishing use separate credentials. Scope the viewer and snapshot tokens to Pages Write for the project account. Keep the viewer and `live.json` in distinct Direct Upload projects so each snapshot update leaves the viewer deployment intact.
 - Third-party actions are pinned to a full commit SHA, not a tag. Dependabot keeps them current.
 - No `curl | sh`. Build tools come from the lockfile.
 - Logs: never `echo` secrets; rely on GitHub masking only as a backstop, not a plan.
 - Artifacts and release assets are public: never include `.dev.vars`, env dumps or unredacted traces.
+
+The `production` Environment uses ordinary variables for `CLOUDFLARE_WORKER_URL`, `CLOUDFLARE_PAGES_VIEWER_URL`, `CLOUDFLARE_PAGES_VIEWER_PROJECT`, `CLOUDFLARE_PAGES_SNAPSHOT_URL` and `CLOUDFLARE_PAGES_SNAPSHOT_PROJECT`. Store deployment credentials as Environment secrets. The deploy workflow has separate `worker` and `viewer` targets. Apply pending migrations before deploying the Worker, and confirm that the viewer origin can read the Worker API.
 
 ## 6. Runtime safety (Worker)
 

@@ -21,10 +21,10 @@
    GitHub Releases: archive of old   | public spectators
    traces (not R2: needs a card)     | (live feed = static snapshot files)
 ```
-One Worker project serves cron and the read-only dynamic API. The live viewer feed is published by the tick as static snapshot files (decision 22; hosting chosen in Phase 0, doc 05), so spectators do not consume the Worker's 100,000 requests/day. The browser never talks to Supabase directly (protects egress quota and keeps RLS closed). Admin routes need `ADMIN_TOKEN`.
+One Worker project serves cron and the read-only dynamic API. After a successful tick commit, the Worker publishes `live.json` to a separate Cloudflare Pages Direct Upload project (decisions 22, 23, 35 and 36). Snapshot reads use the Pages CDN. The browser reads dynamic data through the Worker. Admin routes need `ADMIN_TOKEN`.
 
 ## Time model
-The server never simulates at 60 FPS. A tick produces a **timeline** of timestamped events across the 10-minute window (walk path, sit, type, thought bubble, body changes). The viewer replays and interpolates, so a visitor arriving mid-tick sees the Resident mid-action. Gaps are filled by deterministic idle behaviour (no LLM). World clock = real time; day/night follows it.
+The server never simulates at 60 FPS. A tick produces a **timeline** of timestamped events across the 10-minute window (walk path, sit, type, thought cue, body changes). The viewer replays and interpolates, so a visitor arriving mid-tick sees the Resident mid-action. Resident-authored text comes from the dynamic API on demand, where visibility flags apply. Gaps are filled by deterministic idle behaviour (no LLM). World clock = real time; day/night follows it.
 
 ## Tick pipeline
 1. **Lease** (row in `kv` with expiry) so overlapping runs do nothing.
@@ -40,7 +40,7 @@ The server never simulates at 60 FPS. A tick produces a **timeline** of timestam
 10. **Tools**: search/fetch if needed; sanitize, cap size, mark untrusted.
 11. **Interpret** (LLM call 2, hidden, only for meaningful stimuli; else rule tables): appraisal + factual consequences + prediction error.
 12. **Organism update**: apply appraisal through temperament (sensitivity, habituation) -> new hidden state -> physiology -> emotion-atlas label for the Lab.
-13. **Commit** in one transaction, as **one batched RPC per tick** (Workers Free allows 50 subrequests per invocation, so no per-row writes), then publish the snapshot files: `log_entries` for everything (doc 09), `events`, memories (with appraisal + body snapshot), lessons, questions, goals, beliefs, `organism_samples`, `llm_traces`, `tool_calls`.
+13. **Commit** in one transaction, as **one batched RPC per tick** (Workers Free allows 50 subrequests per invocation, so no per-row writes): `log_entries` (doc 09), `events`, memories (with appraisal + body snapshot), lessons, questions, goals, beliefs, `organism_samples`, `llm_traces`, `tool_calls`. Then publish `live.json` with the public snapshot and its matching timeline.
 14. Release lease.
 
 CPU: Workers Free gives 10 ms CPU per cron invocation (network waits excluded). Phase 0 measures real tick CPU; if the organism/body catch-up does not fit, heavy compute moves to a GitHub Actions cron (5 min minimum, may be delayed) that works on the database directly, and the Worker only makes the LLM/tool calls.

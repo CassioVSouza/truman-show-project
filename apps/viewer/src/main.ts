@@ -1,11 +1,10 @@
 import type { Event, SearchResponse, Snapshot } from "@truman/contracts";
 import "./styles.css";
-import { createViewerApiClient, type StatusPayload } from "./api/client";
-import { DEMO_EVENTS, DEMO_SNAPSHOT, DEMO_STATUS } from "./api/demoData";
+import { createViewerApiClient, type SnapshotFeedResult, type StatusPayload } from "./api/client";
 import { stationLabel, t, translateDynamic, type UiLang } from "./i18n";
 import { WorldScene, type CameraMode } from "./scene/worldScene";
-import { evaluateTimeline, getTimelineBounds } from "./state/timeline";
-import { clear, el } from "./ui/dom";
+import { evaluateTimeline, getTimelineBounds, type TimelineState } from "./state/timeline";
+import { clear, el, formatDateTime } from "./ui/dom";
 import { renderLabTab, type LabTab } from "./ui/labViews";
 import { renderLifeTab, type LifeTab } from "./ui/lifeViews";
 import { openContextModal, renderSearchPanel, runSearch } from "./ui/searchAndContext";
@@ -15,7 +14,6 @@ import { renderVitalsHud } from "./ui/vitalsHud";
 type Section = "life" | "lab";
 
 const SPEEDS = [1, 2, 5];
-// Static snapshot refresh interval: slow refresh (~60 s, once per tick window; never a 4 s Worker poll — decision 22).
 const SNAPSHOT_REFRESH_MS = 60_000;
 
 class ViewerApp {
@@ -25,10 +23,10 @@ class ViewerApp {
   private lifeTab: LifeTab = "live";
   private labTab: LabTab = "organism";
 
-  private snapshot: Snapshot = DEMO_SNAPSHOT;
-  private events: Event[] = DEMO_EVENTS;
-  private status: StatusPayload = DEMO_STATUS;
-  private isDemo = true;
+  private snapshot: Snapshot | null = null;
+  private events: Event[] = [];
+  private status: StatusPayload | null = null;
+  private feedState: SnapshotFeedResult["state"] | "loading" = "loading";
 
   private isLive = true;
   private isPlaying = true;
@@ -41,11 +39,17 @@ class ViewerApp {
   private searchResponse: SearchResponse | null = null;
 
   private worldScene: WorldScene | null = null;
+  private sceneInitialized = false;
+  private renderedThought = "";
+  private renderedAction = "";
 
   // Mounted containers
   private readonly root: HTMLElement;
   private topbarEl!: HTMLElement;
   private subnavEl!: HTMLElement;
+  private feedBadgeEl!: HTMLElement;
+  private statusStripEl!: HTMLElement;
+  private feedNoticeEl!: HTMLElement;
   private searchDrawerEl!: HTMLElement;
   private mainAreaEl!: HTMLElement;
   private liveGridEl!: HTMLElement;
@@ -60,12 +64,8 @@ class ViewerApp {
   constructor(root: HTMLElement) {
     this.root = root;
     this.mountShell();
-    this.initScene();
     void this.refreshFeed();
     this.startPlaybackClock();
-    window.setInterval(() => {
-      void this.refreshFeed();
-    }, SNAPSHOT_REFRESH_MS);
   }
 
   private mountShell(): void {
@@ -73,6 +73,9 @@ class ViewerApp {
 
     this.topbarEl = el("header", { class: "topbar" });
     this.subnavEl = el("nav", { class: "subnav-bar" });
+    this.feedBadgeEl = el("span", { class: "badge", role: "status" });
+    this.statusStripEl = el("div", { class: "status-strip" });
+    this.feedNoticeEl = el("p", { class: "feed-notice" });
     this.searchDrawerEl = el("section", { class: "search-drawer" });
     this.searchDrawerEl.hidden = true;
 
@@ -83,6 +86,7 @@ class ViewerApp {
     const stageWrap = el(
       "div",
       { class: "stage-wrap" },
+      this.feedNoticeEl,
       this.canvasHostEl,
       el(
         "div",
@@ -122,9 +126,9 @@ class ViewerApp {
   }
 
   private initScene(): void {
+    this.sceneInitialized = true;
     try {
       this.worldScene = new WorldScene(this.canvasHostEl);
-      this.worldScene.setSeed(this.snapshot.world.seed);
       this.worldScene.setCameraMode(this.cameraMode);
     } catch {
       // Fallback gracefully if WebGL is unavailable (e.g. headless environments)
@@ -139,23 +143,36 @@ class ViewerApp {
   }
 
   private async refreshFeed(): Promise<void> {
-    const [feed, st] = await Promise.all([this.api.fetchSnapshotFeed(), this.api.getStatus()]);
-    this.snapshot = feed.snapshot;
-    this.events = feed.events;
-    this.status = st.data;
-    this.isDemo = feed.demo;
+    try {
+      const feed = await this.api.fetchSnapshotFeed();
+      const wasDemo = this.feedState === "demo";
+      this.snapshot = feed.snapshot;
+      this.events = feed.events;
+      this.status = feed.status;
+      this.feedState = feed.state;
+      this.renderFeedStatus();
 
-    const bounds = getTimelineBounds(this.snapshot, this.events);
-    if (this.isLive) {
-      // In demo mode, start near the beginning of the sample window so spectators immediately watch movement.
-      this.playheadMs = this.isDemo ? bounds.startMs + 8_000 : Math.min(Date.now(), bounds.endMs);
-    }
+      if (this.snapshot) {
+        if (!this.sceneInitialized) this.initScene();
+        this.worldScene?.setSeed(this.snapshot.world.seed);
+        const { startMs, endMs } = getTimelineBounds(this.snapshot, this.events);
+        if (!this.isLive) {
+          this.playheadMs = Math.min(endMs, Math.max(startMs, this.playheadMs));
+        } else if (feed.state !== "demo") {
+          this.playheadMs = Date.now();
+        } else if (!wasDemo) {
+          this.playheadMs = startMs + 8_000;
+        }
+        this.renderFrame();
+      }
 
-    this.worldScene?.setSeed(this.snapshot.world.seed);
-    this.renderChrome();
-    this.renderFrame();
-    if (!(this.section === "life" && this.lifeTab === "live")) {
-      void this.renderActiveContentTab();
+      if (!this.api.snapshotBase && !(this.section === "life" && this.lifeTab === "live")) {
+        void this.renderActiveContentTab();
+      }
+    } finally {
+      if (this.api.snapshotBase || this.api.apiBase) {
+        window.setTimeout(() => void this.refreshFeed(), SNAPSHOT_REFRESH_MS);
+      }
     }
   }
 
@@ -165,13 +182,17 @@ class ViewerApp {
       const now = performance.now();
       const dt = now - last;
       last = now;
-      const bounds = getTimelineBounds(this.snapshot, this.events);
-
+      if (!this.snapshot) return;
       if (this.isPlaying) {
-        const speed = SPEEDS[this.speedIdx] ?? 1;
-        this.playheadMs += dt * speed;
-        if (this.playheadMs > bounds.endMs) {
-          this.playheadMs = this.isDemo ? bounds.startMs : bounds.endMs;
+        if (this.isLive && this.feedState !== "demo") {
+          this.playheadMs = Date.now();
+        } else {
+          const { startMs, endMs } = getTimelineBounds(this.snapshot, this.events);
+          const speed = SPEEDS[this.speedIdx] ?? 1;
+          this.playheadMs += dt * speed;
+          if (this.playheadMs > endMs) {
+            this.playheadMs = this.feedState === "demo" ? startMs : endMs;
+          }
         }
       }
       this.renderFrame();
@@ -205,20 +226,13 @@ class ViewerApp {
       el("button", { type: "submit", class: "pill-btn" }, t(this.lang, "searchButton")),
     );
 
-    const alive = this.snapshot.resident.vitals.alive && this.status.status !== "dead";
-    const statusBadge = !alive
-      ? el("span", { class: "badge badge-dead" }, t(this.lang, "deadBadge"))
-      : this.isDemo
-        ? el("span", { class: "badge badge-demo" }, t(this.lang, "demoBadge"))
-        : el("span", { class: "badge badge-live" }, t(this.lang, "liveBadge"));
-
     this.topbarEl.append(
       el(
         "div",
         { class: "brand" },
         el("span", null, t(this.lang, "appTitle")),
         el("span", { class: "badge" }, t(this.lang, "readOnlyBadge")),
-        statusBadge,
+        this.feedBadgeEl,
       ),
       el(
         "div",
@@ -315,22 +329,8 @@ class ViewerApp {
       }
     }
 
-    const statusStrip = el(
-      "div",
-      { class: "status-strip" },
-      el(
-        "span",
-        null,
-        `${t(this.lang, "dayLabel")} ${this.status.world_day ?? this.status.day ?? 1}`,
-      ),
-      el("span", null, `${t(this.lang, "seasonLabel")}: ${this.status.season ?? "spring"}`),
-      el(
-        "span",
-        null,
-        `${t(this.lang, "phaseLabel")}: ${this.status.phase ?? this.snapshot.resident.phase}`,
-      ),
-    );
-    this.subnavEl.append(tabsEl, statusStrip);
+    this.subnavEl.append(tabsEl, this.statusStripEl);
+    this.renderFeedStatus();
 
     // Camera buttons overlay
     const camBox = document.getElementById("camera-controls");
@@ -361,37 +361,83 @@ class ViewerApp {
     }
   }
 
+  private renderFeedStatus(): void {
+    const snapshot = this.snapshot;
+    const status = this.status?.status ?? snapshot?.status;
+    const isDead = snapshot?.resident.vitals.alive === false || status === "dead";
+    this.feedBadgeEl.className = "badge";
+    let badge = t(this.lang, "liveBadge");
+
+    if (this.feedState === "loading") {
+      badge = t(this.lang, "loading");
+    } else if (this.feedState === "unavailable") {
+      badge = t(this.lang, "feedUnavailableBadge");
+      this.feedBadgeEl.classList.add("badge-delayed");
+    } else if (isDead) {
+      badge = t(this.lang, "deadBadge");
+      this.feedBadgeEl.classList.add("badge-dead");
+    } else if (this.feedState === "demo") {
+      badge = t(this.lang, "demoBadge");
+      this.feedBadgeEl.classList.add("badge-demo");
+    } else if (this.feedState === "stale") {
+      badge = t(this.lang, "feedDelayedBadge");
+      this.feedBadgeEl.classList.add("badge-delayed");
+    } else if (status === "paused" || status === "hibernating" || status === "degraded") {
+      const messages = {
+        paused: "statusPaused",
+        hibernating: "statusHibernating",
+        degraded: "statusDegraded",
+      } as const;
+      badge = t(this.lang, messages[status]);
+    } else {
+      this.feedBadgeEl.classList.add("badge-live");
+    }
+    if (this.feedBadgeEl.textContent !== badge) this.feedBadgeEl.textContent = badge;
+
+    this.timelineBarEl.hidden = !snapshot;
+    this.feedNoticeEl.hidden = !!snapshot;
+    this.feedNoticeEl.textContent =
+      this.feedState === "loading"
+        ? t(this.lang, "loading")
+        : t(this.lang, "feedUnavailableNotice");
+    this.canvasHostEl.hidden = !snapshot;
+    this.hudSidebarEl.hidden = !snapshot;
+    this.nowDoingOverlayEl.hidden = !snapshot;
+    if (!snapshot) this.thoughtOverlayEl.style.display = "none";
+
+    clear(this.statusStripEl);
+    if (!snapshot) return;
+    const day = this.status?.world_day ?? this.status?.day;
+    const season = this.status?.season;
+    const phase = this.status?.phase ?? snapshot.resident.phase;
+    if (day != null)
+      this.statusStripEl.append(el("span", null, `${t(this.lang, "dayLabel")} ${day}`));
+    if (season)
+      this.statusStripEl.append(el("span", null, `${t(this.lang, "seasonLabel")}: ${season}`));
+    if (phase)
+      this.statusStripEl.append(el("span", null, `${t(this.lang, "phaseLabel")}: ${phase}`));
+    if (this.feedState === "stale") {
+      this.statusStripEl.append(
+        el(
+          "span",
+          null,
+          `${t(this.lang, "feedLastUpdate")}: ${formatDateTime(snapshot.generated_at)}`,
+        ),
+      );
+    }
+  }
+
   private renderFrame(): void {
-    const evaluated = evaluateTimeline(this.snapshot, this.events, this.playheadMs);
+    const snapshot = this.snapshot;
+    if (!snapshot) return;
+    const evaluated = evaluateTimeline(snapshot, this.events, this.playheadMs);
     this.worldScene?.applyTimelineState(evaluated);
 
-    // Thought bubble
-    clear(this.thoughtOverlayEl);
-    if (evaluated.thought) {
-      this.thoughtOverlayEl.style.display = "block";
-      const thoughtP = el("p", { class: "thought-bubble-text" }, evaluated.thought);
-      this.thoughtOverlayEl.append(
-        el("div", { class: "thought-bubble-label" }, t(this.lang, "thoughtBubbleLabel")),
-        thoughtP,
-      );
-      if (this.lang === "pt-BR") {
-        void translateDynamic(evaluated.thought, this.lang).then((res) => {
-          thoughtP.textContent = res.isFallback ? `${res.text} [EN]` : res.text;
-        });
-      }
-    } else {
-      this.thoughtOverlayEl.style.display = "none";
-    }
-
-    // Now-doing line
-    clear(this.nowDoingOverlayEl);
-    this.nowDoingOverlayEl.append(
-      el("strong", null, `${t(this.lang, "nowDoing")}: `),
-      `${evaluated.activeActionLabel} · ${t(this.lang, "stationLabel")}: ${stationLabel(this.lang, evaluated.station)} · ${t(this.lang, "weatherLabel")}: ${evaluated.weather} (${evaluated.timeOfDay})`,
-    );
+    this.renderThought(evaluated);
+    this.renderAction(evaluated);
 
     // Vitals & Body HUD
-    renderVitalsHud(this.hudSidebarEl, this.snapshot, evaluated, this.lang);
+    renderVitalsHud(this.hudSidebarEl, snapshot, evaluated, this.lang);
 
     // Timeline bar
     renderTimelineBar(
@@ -408,8 +454,8 @@ class ViewerApp {
         onToggleLive: () => {
           this.isLive = true;
           this.isPlaying = true;
-          const bounds = getTimelineBounds(this.snapshot, this.events);
-          this.playheadMs = this.isDemo ? bounds.startMs : bounds.endMs;
+          const bounds = getTimelineBounds(snapshot, this.events);
+          this.playheadMs = this.feedState === "demo" ? bounds.startMs : Date.now();
           this.renderFrame();
         },
         onTogglePlay: () => {
@@ -424,10 +470,68 @@ class ViewerApp {
           this.renderFrame();
         },
         onCycleSpeed: () => {
+          if (this.feedState !== "demo") this.isLive = false;
           this.speedIdx = (this.speedIdx + 1) % SPEEDS.length;
           this.renderFrame();
         },
       },
+    );
+  }
+
+  private renderThought(evaluated: TimelineState): void {
+    const { thought, thinking, thoughtLogId } = evaluated;
+    const identity = JSON.stringify([this.lang, thought, thinking, thoughtLogId]);
+    if (this.renderedThought === identity) return;
+    this.renderedThought = identity;
+    clear(this.thoughtOverlayEl);
+    this.thoughtOverlayEl.style.display = thought || thinking ? "block" : "none";
+    if (!thought && !thinking) return;
+
+    this.thoughtOverlayEl.append(
+      el("div", { class: "thought-bubble-label" }, t(this.lang, "thoughtBubbleLabel")),
+    );
+    if (thought) {
+      const text = el("p", { class: "thought-bubble-text" }, thought);
+      this.thoughtOverlayEl.append(text);
+      if (this.lang === "pt-BR") {
+        void translateDynamic(thought, this.lang).then((res) => {
+          text.textContent = res.isFallback ? `${res.text} [EN]` : res.text;
+        });
+      }
+    } else {
+      const context = this.contextButton(thoughtLogId);
+      if (context) this.thoughtOverlayEl.append(context);
+    }
+  }
+
+  private renderAction(evaluated: TimelineState): void {
+    const { activeActionLabel, activeEventSeq, midAction, station, weather, timeOfDay } = evaluated;
+    const label = `${activeActionLabel} · ${t(this.lang, "stationLabel")}: ${stationLabel(this.lang, station)} · ${t(this.lang, "weatherLabel")}: ${weather} (${timeOfDay})`;
+    const logId = midAction
+      ? this.events.find((event) => event.seq === activeEventSeq)?.log_id
+      : null;
+    const identity = JSON.stringify([this.lang, label, logId]);
+    if (this.renderedAction === identity) return;
+    this.renderedAction = identity;
+
+    clear(this.nowDoingOverlayEl);
+    this.nowDoingOverlayEl.append(el("strong", null, `${t(this.lang, "nowDoing")}: `), label);
+    const context = this.contextButton(logId);
+    if (context) this.nowDoingOverlayEl.append(" ", context);
+  }
+
+  private contextButton(id: number | null | undefined): HTMLElement | null {
+    if (id == null) return null;
+    return el(
+      "button",
+      {
+        type: "button",
+        class: "link-btn",
+        onClick: () => {
+          void openContextModal(this.contextModalEl, this.api, id, this.lang);
+        },
+      },
+      t(this.lang, "inspectContext"),
     );
   }
 

@@ -4,6 +4,7 @@
 import { ContextResponse, LogKind } from "@truman/contracts";
 import { z } from "zod";
 import { sizeReport } from "../governor/size";
+import type { StartResult } from "../tick/start";
 import {
   RateLimiter,
   defaultEdgeCache,
@@ -29,6 +30,7 @@ export interface ApiContext {
   translateDayCap: number;
   /** Runs one tick now (admin). */
   runTick: () => Promise<unknown>;
+  startResident: () => Promise<StartResult>;
   cache?: EdgeCache | null;
   now?: () => number;
   limiter?: RateLimiter;
@@ -392,6 +394,12 @@ async function handleAdmin(
   if (!post) return errorJson(405, "method not allowed", { allow: "POST", ...noStore });
 
   switch (sub) {
+    case "start": {
+      const result = await ctx.startResident();
+      if (result === "busy") return errorJson(409, "tick lease is busy", noStore);
+      if (result === "already_started") return errorJson(409, "resident already exists", noStore);
+      return json({ ok: true, action: sub }, 201);
+    }
     case "pause":
     case "kill":
       await ctx.db.rpc("admin_set_flag", {

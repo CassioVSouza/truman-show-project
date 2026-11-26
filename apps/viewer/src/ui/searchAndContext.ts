@@ -118,11 +118,33 @@ export async function openContextModal(
 ): Promise<void> {
   modal.hidden = false;
   clear(modal);
-  modal.appendChild(
-    el("div", { class: "modal-card" }, el("p", { class: "muted-note" }, t(lang, "loading"))),
+  const loading = el(
+    "div",
+    { class: "modal-card" },
+    el("p", { class: "muted-note" }, t(lang, "loading")),
   );
+  modal.appendChild(loading);
 
   const { data } = await api.getContext(entryId);
+  if (modal.hidden || !modal.contains(loading)) return;
+  if (!data) {
+    clear(loading);
+    loading.append(
+      el("p", { class: "muted-note" }, t(lang, "contextUnavailable")),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "ghost-btn",
+          onClick: () => {
+            modal.hidden = true;
+          },
+        },
+        t(lang, "close"),
+      ),
+    );
+    return;
+  }
   renderContextModalContent(modal, data, lang, (nextId) => {
     void openContextModal(modal, api, nextId, lang);
   });
