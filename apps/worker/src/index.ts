@@ -5,10 +5,13 @@ import { governorConfigFromEnv, type Lease } from "./governor";
 import { providersFromEnv, type FetchLike, type LlmProvider } from "./llm";
 import { LogWriter } from "./log";
 import { MemoryRows, runMindTick, type MindTickResult } from "./tick";
+import { startResident } from "./tick/start";
 import { createWebTools } from "./tools";
 import { handleApi } from "./api";
 import { parseOrigins } from "./api/http";
 import { MyMemoryTranslator, WorkersAiTranslator, type Translator } from "./api/translate";
+import { createSnapshotPublisher, type SnapshotWriter } from "./snapshot";
+import { makePagesSnapshotWriter } from "./snapshot/pages";
 
 const DEFAULT_TRANSLATE_DAY = 150;
 
@@ -18,6 +21,7 @@ export interface LiveTickOptions {
   fetchFn?: FetchLike;
   lease?: Lease;
   providers?: LlmProvider[];
+  writeSnapshot?: SnapshotWriter;
 }
 
 /**
@@ -36,6 +40,7 @@ export async function runLiveTick(env: Env, opts: LiveTickOptions = {}): Promise
     fetchFn: opts.fetchFn,
     scrub,
   });
+  const writeSnapshot = opts.writeSnapshot ?? makePagesSnapshotWriter(env, opts.fetchFn);
   return runMindTick({
     db,
     log: new LogWriter(scrub),
@@ -46,6 +51,19 @@ export async function runLiveTick(env: Env, opts: LiveTickOptions = {}): Promise
     lease,
     now: opts.now ?? (() => new Date()),
     scrub,
+    publishSnapshot:
+      writeSnapshot && db instanceof SupabaseDb
+        ? createSnapshotPublisher(
+            (from, until) => db.readSnapshotEvents(from, until),
+            writeSnapshot,
+          )
+        : undefined,
+    onSnapshotError: (tickId, error) =>
+      console.error({
+        event: "snapshot_publish_failed",
+        tick_id: tickId,
+        error: scrub(error instanceof Error ? error.message : String(error)).slice(0, 250),
+      }),
   });
 }
 
@@ -78,6 +96,7 @@ export default {
         translateDayCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TRANSLATE_DAY,
         // admin "tick now": fresh SupabaseDb inside runLiveTick so subrequest budget is not shared with the API call
         runTick: () => runLiveTick(env),
+        startResident: () => startResident(db, db.createLease()),
       },
       (m) => console.error(scrub(m)),
     );

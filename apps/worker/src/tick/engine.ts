@@ -444,8 +444,10 @@ export async function executeAction(
   if (walk && walk.points.length >= 2)
     span("walk", { waypoints: walk.points.map((q) => ({ x: q.x, z: q.z })), speed: walk.speed });
   if (action.type === "write_journal") span("anim", { name: "write", station: "journal_table" });
+  if (tool) span("anim", { name: "read" });
+  if (p.body.type === "rest" && action.type === "rest") span("anim", { name: "rest" });
   if (p.body.type === "sleep") {
-    span("sleep_start", {}, t0, t0);
+    span("sleep_start", {});
     span("sleep_end", {}, world.t, world.t);
   }
   if (p.ok && (action.type === "eat" || action.type === "drink"))

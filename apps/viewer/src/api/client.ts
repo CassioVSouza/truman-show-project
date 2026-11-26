@@ -1,10 +1,11 @@
-import type {
-  ContextResponse,
-  Event,
-  ListResponse,
-  LogEntry,
-  SearchResponse,
-  Snapshot,
+import {
+  LiveFeed,
+  type ContextResponse,
+  type Event,
+  type ListResponse,
+  type LogEntry,
+  type SearchResponse,
+  type Snapshot,
 } from "@truman/contracts";
 import type { ApiLang } from "../i18n";
 import {
@@ -27,16 +28,22 @@ export interface StatusPayload {
   season: string | null;
 }
 
-export interface SnapshotFeedResult {
+interface SnapshotFeed {
   snapshot: Snapshot;
   events: Event[];
-  demo: boolean;
+  status: StatusPayload | null;
 }
+
+export type SnapshotFeedResult =
+  | (SnapshotFeed & { state: "demo" | "live" | "stale" })
+  | { state: "unavailable"; snapshot: null; events: []; status: null };
+
+const SNAPSHOT_STALE_AFTER_MS = 20 * 60_000;
 
 export interface ViewerApiConfig {
   /** Worker public API base URL (e.g. https://truman-worker.workers.dev). Never Supabase. */
   apiBase?: string;
-  /** Optional static snapshot host URL (decision 22: static snapshot.json + events.json). */
+  /** Static snapshot host URL (decision 22: a single live.json per tick). */
   snapshotBase?: string;
   /** Optional custom fetch for unit tests. */
   fetchImpl?: typeof fetch;
@@ -61,12 +68,13 @@ function stripTrailingSlash(url: string | undefined): string {
  * - Uses ONLY HTTP GET requests.
  * - Talks ONLY to the Worker API (`VITE_API_BASE`) and static snapshot host (`VITE_SNAPSHOT_BASE`).
  * - Never references Supabase or any secret tokens.
- * - Falls back cleanly to offline demo data when no API is configured or reachable.
+ * - Uses an offline demo when run without a static feed or reachable dev API.
  */
 export class ViewerApiClient {
   readonly apiBase: string;
   readonly snapshotBase: string;
   private readonly fetchFn: typeof fetch;
+  private latestStaticFeed: SnapshotFeed | null = null;
   public isDemoMode = false;
 
   constructor(cfg: ViewerApiConfig = {}) {
@@ -76,11 +84,12 @@ export class ViewerApiClient {
     this.isDemoMode = !this.apiBase && !this.snapshotBase;
   }
 
-  private async getJson<T>(url: string): Promise<T | null> {
+  private async getJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
     try {
       const res = await this.fetchFn(url, {
         method: "GET",
         headers: { accept: "application/json" },
+        signal,
       });
       if (!res.ok) return null;
       return (await res.json()) as T;
@@ -89,37 +98,55 @@ export class ViewerApiClient {
     }
   }
 
-  /**
-   * Fetches the static snapshot & timeline events (decision 22: static host first,
-   * never polling the Worker every 4s). Falls back to offline demo data if unavailable.
-   */
+  /** In production, the snapshot and matching events arrive in one static response. */
   async fetchSnapshotFeed(): Promise<SnapshotFeedResult> {
-    if (this.snapshotBase) {
-      const [snap, evs] = await Promise.all([
-        this.getJson<Snapshot>(`${this.snapshotBase}/snapshot.json`),
-        this.getJson<Event[] | { events: Event[] }>(`${this.snapshotBase}/events.json`),
-      ]);
-      if (snap) {
-        const events = Array.isArray(evs) ? evs : (evs?.events ?? []);
-        this.isDemoMode = false;
-        return { snapshot: snap, events, demo: false };
-      }
-    }
+    if (this.snapshotBase) return this.fetchStaticFeed();
 
     if (this.apiBase) {
-      const [snap, evs] = await Promise.all([
+      const [snap, evs, status] = await Promise.all([
         this.getJson<Snapshot>(`${this.apiBase}/api/snapshot`),
         this.getJson<Event[] | { events: Event[] }>(`${this.apiBase}/api/events?limit=200`),
+        this.getStatus(),
       ]);
       if (snap) {
         const events = Array.isArray(evs) ? evs : (evs?.events ?? []);
         this.isDemoMode = false;
-        return { snapshot: snap, events, demo: false };
+        return { snapshot: snap, events, status: status.demo ? null : status.data, state: "live" };
       }
     }
 
     this.isDemoMode = true;
-    return { snapshot: DEMO_SNAPSHOT, events: DEMO_EVENTS, demo: true };
+    return { snapshot: DEMO_SNAPSHOT, events: DEMO_EVENTS, status: DEMO_STATUS, state: "demo" };
+  }
+
+  private async fetchStaticFeed(): Promise<SnapshotFeedResult> {
+    const raw = await this.getJson<unknown>(
+      `${this.snapshotBase}/live.json`,
+      AbortSignal.timeout(10_000),
+    );
+    const parsed = LiveFeed.safeParse(raw);
+    const previous = this.latestStaticFeed;
+    const next = parsed.success ? parsed.data : null;
+    const usable =
+      next &&
+      (!previous ||
+        (Date.parse(next.snapshot.generated_at) >= Date.parse(previous.snapshot.generated_at) &&
+          next.snapshot.seq >= previous.snapshot.seq));
+    if (usable) {
+      this.latestStaticFeed = next;
+    }
+
+    const latest = this.latestStaticFeed;
+    if (!latest) return { snapshot: null, events: [], status: null, state: "unavailable" };
+    const age = Date.now() - Date.parse(latest.snapshot.generated_at);
+    const status = latest.status?.status ?? latest.snapshot.status;
+    const expectsUpdates =
+      status !== "dead" &&
+      status !== "paused" &&
+      status !== "hibernating" &&
+      latest.snapshot.resident.vitals.alive;
+    const stale = expectsUpdates && (!usable || age > SNAPSHOT_STALE_AFTER_MS);
+    return { ...latest, state: stale ? "stale" : "live" };
   }
 
   async getStatus(): Promise<{ data: StatusPayload; demo: boolean }> {
@@ -230,11 +257,12 @@ export class ViewerApiClient {
     };
   }
 
-  async getContext(entryId: number): Promise<{ data: ContextResponse; demo: boolean }> {
+  async getContext(entryId: number): Promise<{ data: ContextResponse | null; demo: boolean }> {
     if (this.apiBase) {
       const data = await this.getJson<ContextResponse>(`${this.apiBase}/api/context/${entryId}`);
       if (data && data.entry) return { data, demo: false };
     }
+    if (this.snapshotBase) return { data: null, demo: false };
     const found = DEMO_LOG_ENTRIES.find((e) => e.id === entryId);
     if (found) {
       const causes = found.caused_by

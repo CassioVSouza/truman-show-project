@@ -92,6 +92,18 @@ export class SupabaseDb implements Db {
     )) as CommitResult;
   }
 
+  /** One private read for the publication window. Joined hidden flags stay server-side. */
+  async readSnapshotEvents(from: Date, until: Date): Promise<unknown> {
+    const query = new URLSearchParams({
+      select: "v,seq,t_start,t_end,actor,kind,data,log_id,entry:log_entries(hidden)",
+      t_end: `gte.${from.toISOString()}`,
+      t_start: `lte.${until.toISOString()}`,
+      order: "seq.desc",
+      limit: "200",
+    });
+    return this.call(`/rest/v1/events?${query}`, { method: "GET" });
+  }
+
   /**
    * Atomic compare-and-set tick lease over the `kv` table (`key = 'lease'`).
    * Steady state: 1 conditional PATCH (Postgres row-lock serializes concurrent ticks).

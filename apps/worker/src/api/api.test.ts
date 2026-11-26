@@ -35,6 +35,7 @@ function mk(db: FakeRpc, over: Partial<ApiContext> = {}): ApiContext {
     translators: [],
     translateDayCap: 2,
     runTick: async () => ({ ran: true }),
+    startResident: async () => "already_started",
     cache: memCache(),
     now: () => 1_000_000,
     limiter: new RateLimiter(1000, 60_000),
@@ -380,6 +381,28 @@ describe("admin", () => {
       await handleApi(post("/admin/pause", { ...h, authorization: "Bearer wrong" }), ctx);
     }
     expect((await handleApi(post("/admin/pause", { ...h, ...auth }), ctx)).status).toBe(429);
+  });
+  test("start requires a bearer and a POST; it reports creation and conflicts without leaking state", async () => {
+    const db = new FakeRpc();
+    const results = ["started", "busy", "already_started"] as const;
+    let starts = 0;
+    const ctx = mk(db, { startResident: async () => results[starts++]! });
+    expect((await handleApi(post("/admin/start", {}), ctx)).status).toBe(401);
+    expect((await handleApi(get("/admin/start", { headers: auth }), ctx)).status).toBe(405);
+    expect((await handleApi(post("/admin/start?seed=1"), ctx)).status).toBe(400);
+    expect(starts).toBe(0);
+
+    const created = await handleApi(post("/admin/start"), ctx);
+    expect(created.status).toBe(201);
+    expect(created.headers.get("cache-control")).toBe("no-store");
+    expect(await created.json()).toEqual({ ok: true, action: "start" });
+    for (const error of ["tick lease is busy", "resident already exists"]) {
+      const conflict = await handleApi(post("/admin/start"), ctx);
+      expect(conflict.status).toBe(409);
+      expect(await conflict.json()).toEqual({ error });
+    }
+    expect(starts).toBe(3);
+    expect(db.calls).toHaveLength(0);
   });
   test("pause, resume, kill flip the gate flags; tick runs a tick", async () => {
     const db = new FakeRpc();

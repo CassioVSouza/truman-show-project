@@ -340,6 +340,7 @@ export const Snapshot = z.object({
   world: z.object({
     seed: z.number().int(),
     weather: z.string(),
+    time_of_day: z.enum(["dawn", "day", "dusk", "night"]).optional(),
     entities: z.array(
       z.object({
         id: z.string(),
@@ -362,6 +363,21 @@ export const Snapshot = z.object({
   status: z.string(),
 });
 export type Snapshot = z.infer<typeof Snapshot>;
+
+export const LiveFeed = z.object({
+  snapshot: Snapshot,
+  events: z.array(Event).max(200),
+  status: z.object({
+    status: z.string(),
+    phase: z.string(),
+    day: z.number().int(),
+    last_tick_at: z.string().datetime().nullable(),
+    mode: z.string(),
+    world_day: z.number().int(),
+    season: z.enum(["spring", "summer", "autumn", "winter"]),
+  }),
+});
+export type LiveFeed = z.infer<typeof LiveFeed>;
 
 // ---------- Search ----------
 export const SearchRequest = z.object({

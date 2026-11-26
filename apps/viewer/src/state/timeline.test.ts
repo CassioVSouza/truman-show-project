@@ -99,6 +99,56 @@ describe("evaluateTimeline", () => {
     expect(st.thought).toBe("The rain is tapping on the roof.");
   });
 
+  it("uses the snapshot sky and hearth during a quiet window", () => {
+    const snapshot = {
+      ...DEMO_SNAPSHOT,
+      world: {
+        ...DEMO_SNAPSHOT.world,
+        time_of_day: "night" as const,
+        entities: [],
+      },
+    };
+    const state = evaluateTimeline(snapshot, [], T0);
+    expect(state.timeOfDay).toBe("night");
+    expect(state.fire.state).toBe("out");
+  });
+
+  it("shows a link-only thought alongside an active action and clears it at expiry", () => {
+    const events: Event[] = [
+      {
+        v: SCHEMA_VERSION,
+        seq: 1,
+        t_start: iso(0),
+        t_end: iso(10),
+        actor: "resident",
+        kind: "anim",
+        data: { name: "thinking" },
+        log_id: 10,
+      },
+      {
+        v: SCHEMA_VERSION,
+        seq: 2,
+        t_start: iso(2),
+        t_end: iso(20),
+        actor: "resident",
+        kind: "anim",
+        data: { name: "read" },
+        log_id: 11,
+      },
+    ];
+    const during = evaluateTimeline(DEMO_SNAPSHOT, events, T0 + 5_000);
+    expect(during.thought).toBeNull();
+    expect(during.thinking).toBe(true);
+    expect(during.thoughtLogId).toBe(10);
+    expect(during.poseAnim).toBe("desk");
+    expect(during.activeEventSeq).toBe(2);
+
+    const after = evaluateTimeline(DEMO_SNAPSHOT, events, T0 + 12_000);
+    expect(after.thinking).toBe(false);
+    expect(after.thoughtLogId).toBeNull();
+    expect(after.poseAnim).toBe("desk");
+  });
+
   it("enters permanent death/memorial state on death event", () => {
     const events: Event[] = [
       {

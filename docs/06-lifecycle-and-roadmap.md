@@ -43,6 +43,13 @@ Tick pipeline every 10 min (doc 02). Rhythms emerge from the body: fatigue and r
 10. Deploy Worker + Pages + Supabase; 72 h soak test.
 *Done:* 72 h unattended, budgets respected, every thought/action/idea searchable with its cause chain, hidden layer never leaks into prompts, viewer shows live mid-action state.
 
+### Phase 1B Wave 3 release checks
+
+1. Apply the genesis migration, configure the protected GitHub Environment, and provision the two Pages projects. Deploy the Worker and viewer with their configured origins. See [security and deployment setup](12-security-and-secrets.md).
+2. Verify the public Worker API, viewer origin, and empty-state or existing-run status. Use the authenticated `POST /admin/start` once for a new run. A repeated start preserves the existing Resident, including after death. The first decision runs on the next scheduled tick, subject to the pause and kill controls.
+3. Verify the first live tick in the Worker logs, get `live.json` from its stable URL, and open the viewer during an action. Check the body display, timeline, and log search and context links.
+4. Observe 72 unattended hours. Check successful and failed ticks, CPU and subrequests, LLM and tool quotas, and freshness and sequence order at the Pages URL. Record what ran and any interruptions before calling the phase complete.
+
 **Phase 2 - Depth**: emotion atlas (50+ states) in Lab, affective memory reactivation, sleep consolidation + dreams, goal tree emerging from reflection, pgvector memory, trace archiving to GitHub Releases, replay mode.
 
 **Phase 3 - Making things**: materials + property-based validator, procedural items, craft, tool wear, small game/hunting, real weather option (Open-Meteo), hygiene, easel, instruments (Tone.js).

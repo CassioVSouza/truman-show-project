@@ -29,6 +29,62 @@ CREATE FUNCTION public.zz_probe() RETURNS int LANGUAGE sql AS 'SELECT 1';
 SELECT pg_temp.assert(NOT has_function_privilege('anon','public.zz_probe()','EXECUTE') AND NOT has_function_privilege('authenticated','public.zz_probe()','EXECUTE'), 'new functions closed by default');
 DROP FUNCTION public.zz_probe();
 
+-- Genesis before the test fixture below inserts its own Resident. Roll this feature test back afterwards.
+BEGIN;
+SET LOCAL ROLE service_role;
+INSERT INTO kv (key, value) VALUES
+  ('lease', jsonb_build_object('holder', 'test-start', 'expires_at', clock_timestamp() + interval '2 min')),
+  ('paused', 'true'), ('kill_switch', 'false');
+
+SAVEPOINT stale_state;
+INSERT INTO kv (key, value) VALUES ('world_seed', '41');
+DO $$
+DECLARE
+  mind jsonb := '{"seed":42,"station":"bed","pos":{"x":1,"z":2,"heading":0},
+    "organism":{"temperament":{"seed":42},"state":{}},"physiology":{},"skills":{}}';
+BEGIN
+  BEGIN
+    PERFORM admin_start_resident('test-start', now(), mind, '{"alive":true}');
+    RAISE EXCEPTION 'previous seed should prevent genesis';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM resident), 'conflicting genesis state rolls back the singleton');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'world_seed') = '41'::jsonb, 'previous seed preserved');
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM events), 'failed genesis has no event');
+END $$;
+ROLLBACK TO SAVEPOINT stale_state;
+
+DO $$
+DECLARE
+  mind jsonb := '{"seed":42,"station":"bed","pos":{"x":1,"z":2,"heading":0},
+    "organism":{"temperament":{"seed":42},"state":{}},"physiology":{},"skills":{}}';
+  vitals jsonb := '{"alive":true}';
+BEGIN
+  PERFORM pg_temp.assert(admin_start_resident('other-holder', now(), mind, vitals) = 'busy', 'start requires its own lease');
+  UPDATE kv SET value = jsonb_set(value, '{expires_at}', to_jsonb(clock_timestamp() - interval '1 sec')) WHERE key = 'lease';
+  PERFORM pg_temp.assert(admin_start_resident('test-start', now(), mind, vitals) = 'busy', 'start rejects an expired lease');
+  UPDATE kv SET value = jsonb_set(value, '{expires_at}', to_jsonb(clock_timestamp() + interval '2 min')) WHERE key = 'lease';
+  PERFORM pg_temp.assert(admin_start_resident('test-start', now(), mind, vitals) = 'started', 'service role can start');
+  PERFORM pg_temp.assert((SELECT born_at = now() AND x = 1 AND z = 2 AND station = 'bed'
+      AND temperament = '{"seed":42}'::jsonb AND resident.vitals = '{"alive":true}'::jsonb
+    FROM resident WHERE id = 1), 'first Resident is initialized');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'mind') = mind, 'initial mind stored');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'world_seed') = '42'::jsonb, 'initial seed stored');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'paused') = 'true'::jsonb, 'pause setting preserved');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'kill_switch') = 'false'::jsonb, 'kill setting preserved');
+  PERFORM pg_temp.assert(EXISTS (SELECT 1 FROM events e JOIN log_entries l ON e.log_id = l.id
+    WHERE e.kind = 'status' AND e.data->>'status' = 'paused' AND l.data->>'admin' = 'start'), 'initial status links to its audit log');
+
+  PERFORM pg_temp.assert(admin_start_resident('test-start', now(), mind, vitals) = 'already_started', 'second start conflicts');
+  UPDATE resident SET status = 'dead' WHERE id = 1;
+  PERFORM pg_temp.assert(admin_start_resident('test-start', now(), mind, vitals) = 'already_started', 'death cannot be reset');
+  PERFORM pg_temp.assert((SELECT status FROM resident WHERE id = 1) = 'dead', 'death is preserved');
+  PERFORM pg_temp.assert((SELECT value FROM kv WHERE key = 'mind') = mind, 'duplicate starts preserve mind');
+  PERFORM pg_temp.assert((SELECT count(*) FROM events) = 1 AND (SELECT count(*) FROM log_entries) = 1,
+    'duplicate starts add no event or audit');
+END $$;
+ROLLBACK;
+
 -- 2. tick_commit: one call, causal links, events linked, resident updated
 INSERT INTO resident (id, born_at, x, z, heading, temperament, organism, physiology) VALUES (1, now(), 0, 0, 0, '{}', '{}', '{}');
 CREATE TEMP TABLE out AS SELECT tick_commit($j$

@@ -31,10 +31,11 @@ See doc 08. `OrganismState` (18 hidden variables), `Physiology` (21 channels), `
 `walk, anim, thought, web_visit, journal, body (heart_rate, breath_rate, posture, heaviness, tension), sleep_start, sleep_end, dream, world, status`, each with `t_start, t_end, seq, log_id`. The viewer is a pure function of snapshot + timeline.
 
 ## 7. Public API (read-only, GET, JSON, via Worker, edge-cached)
+
+The static Pages host serves `GET /live.json`, a single JSON object with `snapshot`, `events` and `status`. The bundle contains public world and Resident display state, event timing and movement, and log references. Read Resident-authored text through the dynamic routes below so that hide flags apply.
+
 | Route | Returns | Cache |
 |---|---|---|
-| `/api/snapshot` | Snapshot | 5 s |
-| `/api/events?after=&limit<=200` | events + next_seq | 3 s |
 | `/api/search?q=&kinds=&category=&from=&to=&lang=&before_id=` | SearchResponse | 60 s |
 | `/api/log?kind=&category=&after=` | LogEntry[] | 15 s |
 | `/api/context/:entryId` | entry + causes chain + consequences chain + body state + trace refs | 60 s |
@@ -50,7 +51,7 @@ Search extras: `sort=relevance|time`, keyset cursor `before_id` (+ `before_rank`
 No public write routes. Lab and life are the same API, separated by `category` and route prefix.
 
 ## 8. Admin (bearer `ADMIN_TOKEN`)
-`POST /admin/pause | resume | kill | tick | hide/:logId | unhide/:logId`, `GET /admin/export`. `hide` only flips the `hidden` flag (takedown lever, not a filter).
+`POST /admin/start | pause | resume | kill | tick | hide/:logId | unhide/:logId`, `GET /admin/export`. Send `start` with an empty body. It creates the first Resident and its world state atomically and returns `201`. It returns `409` while a tick holds the lease or when the Resident already exists. `hide` only flips the `hidden` flag (takedown lever, not a filter).
 
 ## 9. LLMProvider (internal)
 `generate({role, system, messages, schema, temperature, maxOutputTokens, images?})` -> `{data, usage, trace_id}`. Errors: `RateLimited | QuotaExhausted | InvalidJson | Refused | Unavailable`. `Refused` (provider safety refusal) triggers fallback to the next provider, is logged, and is never rewritten or softened by us. Every call writes an `llm_traces` row.

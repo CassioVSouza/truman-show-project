@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { ViewerApiClient } from "./client";
-import { DEMO_EVENTS, DEMO_SNAPSHOT } from "./demoData";
+import { DEMO_EVENTS, DEMO_SNAPSHOT, DEMO_STATUS } from "./demoData";
+import { evaluateTimeline } from "../state/timeline";
+
+const staticHost = "https://static.example.dev";
+const workerHost = "https://worker.example.dev";
 
 describe("ViewerApiClient", () => {
   it("falls back to offline demo data when no API base is configured", async () => {
     const client = new ViewerApiClient();
     const feed = await client.fetchSnapshotFeed();
-    expect(feed.demo).toBe(true);
-    expect(feed.snapshot.v).toBe(1);
+    expect(feed.state).toBe("demo");
+    expect(feed.snapshot?.v).toBe(1);
     expect(feed.events.length).toBeGreaterThan(0);
 
     const status = await client.getStatus();
@@ -20,36 +24,141 @@ describe("ViewerApiClient", () => {
 
     const ctx = await client.getContext(102);
     expect(ctx.demo).toBe(true);
-    expect(ctx.data.entry.id).toBe(102);
+    expect(ctx.data?.entry.id).toBe(102);
   });
 
-  it("prefers static snapshot host when snapshotBase is configured (GET only)", async () => {
+  it("loads one static bundle and renders a mid-action arrival", async () => {
     const calls: Array<{ url: string; method: string }> = [];
+    const now = Date.now();
+    const walk = DEMO_EVENTS.find((event) => event.kind === "walk")!;
+    const snapshot = { ...DEMO_SNAPSHOT, generated_at: new Date(now - 5_000).toISOString() };
+    const events = [
+      {
+        ...walk,
+        t_start: new Date(now - 5_000).toISOString(),
+        t_end: new Date(now + 5_000).toISOString(),
+      },
+    ];
     const fetchImpl: typeof fetch = vi.fn(async (input, init) => {
       const url = String(input);
       calls.push({ url, method: init?.method ?? "GET" });
-      if (url.endsWith("/snapshot.json")) {
-        return new Response(JSON.stringify(DEMO_SNAPSHOT), { status: 200 });
-      }
-      if (url.endsWith("/events.json")) {
-        return new Response(JSON.stringify(DEMO_EVENTS), { status: 200 });
-      }
-      return new Response("not found", { status: 404 });
+      return Response.json({ snapshot, events, status: DEMO_STATUS });
     });
 
     const client = new ViewerApiClient({
-      apiBase: "https://worker.example.dev",
-      snapshotBase: "https://static.example.dev/",
+      apiBase: workerHost,
+      snapshotBase: `${staticHost}/`,
       fetchImpl,
     });
     const feed = await client.fetchSnapshotFeed();
-    expect(feed.demo).toBe(false);
-    expect(feed.snapshot.seq).toBe(DEMO_SNAPSHOT.seq);
-    expect(calls.every((c) => c.method === "GET")).toBe(true);
-    expect(calls.map((c) => c.url)).toEqual([
-      "https://static.example.dev/snapshot.json",
-      "https://static.example.dev/events.json",
-    ]);
+    expect(feed.state).toBe("live");
+    expect(feed.snapshot?.seq).toBe(snapshot.seq);
+    expect(feed.status).toEqual(DEMO_STATUS);
+    expect(calls).toEqual([{ url: `${staticHost}/live.json`, method: "GET" }]);
+    const frame = evaluateTimeline(feed.snapshot!, feed.events, now);
+    expect(frame.midAction).toBe(true);
+    expect(frame.poseAnim).toBe("walk");
+    expect(frame.pose).not.toEqual(snapshot.resident.pose);
+  });
+
+  it("reports missing static data without querying the Worker or showing the demo", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("missing", { status: 404 }));
+    const client = new ViewerApiClient({
+      apiBase: workerHost,
+      snapshotBase: staticHost,
+      fetchImpl,
+    });
+
+    await expect(client.fetchSnapshotFeed()).resolves.toMatchObject({
+      state: "unavailable",
+      snapshot: null,
+      events: [],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`${staticHost}/live.json`);
+  });
+
+  it("retains the complete last good bundle across corrupt and regressed CDN responses", async () => {
+    const snapshot = { ...DEMO_SNAPSHOT, generated_at: new Date().toISOString() };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ snapshot, events: DEMO_EVENTS, status: DEMO_STATUS }))
+      .mockResolvedValueOnce(
+        Response.json({ snapshot, events: [{ kind: "invalid" }], status: DEMO_STATUS }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          snapshot: { ...snapshot, seq: snapshot.seq - 1 },
+          events: [],
+          status: DEMO_STATUS,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          snapshot: { ...snapshot, seq: snapshot.seq + 1 },
+          events: [],
+          status: DEMO_STATUS,
+        }),
+      );
+    const client = new ViewerApiClient({
+      apiBase: workerHost,
+      snapshotBase: staticHost,
+      fetchImpl,
+    });
+
+    expect((await client.fetchSnapshotFeed()).state).toBe("live");
+    for (let count = 0; count < 2; count++) {
+      const delayed = await client.fetchSnapshotFeed();
+      expect(delayed.state).toBe("stale");
+      expect(delayed.snapshot?.seq).toBe(snapshot.seq);
+      expect(delayed.events).toEqual(DEMO_EVENTS);
+    }
+    const recovered = await client.fetchSnapshotFeed();
+    expect(recovered.state).toBe("live");
+    expect(recovered.snapshot?.seq).toBe(snapshot.seq + 1);
+    expect(recovered.events).toEqual([]);
+    expect(fetchImpl.mock.calls.every(([url]) => url === `${staticHost}/live.json`)).toBe(true);
+  });
+
+  it("flags an old live bundle as delayed and keeps an old terminal bundle replayable", async () => {
+    const snapshot = {
+      ...DEMO_SNAPSHOT,
+      generated_at: new Date(Date.now() - 21 * 60_000).toISOString(),
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ snapshot, events: [], status: DEMO_STATUS }))
+      .mockResolvedValueOnce(
+        Response.json({
+          snapshot: { ...snapshot, status: "dead" },
+          events: [],
+          status: { ...DEMO_STATUS, status: "dead" },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("network down"));
+    const client = new ViewerApiClient({
+      apiBase: workerHost,
+      snapshotBase: staticHost,
+      fetchImpl,
+    });
+
+    expect((await client.fetchSnapshotFeed()).state).toBe("stale");
+    for (let count = 0; count < 2; count++) {
+      const memorial = await client.fetchSnapshotFeed();
+      expect(memorial.state).toBe("live");
+      expect(memorial.snapshot?.status).toBe("dead");
+    }
+  });
+
+  it("keeps missing live context unavailable", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("not found", { status: 404 }));
+    const client = new ViewerApiClient({
+      apiBase: workerHost,
+      snapshotBase: staticHost,
+      fetchImpl,
+    });
+    expect(await client.getContext(102)).toEqual({ data: null, demo: false });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`${workerHost}/api/context/102`);
   });
 
   it("queries Worker search, context, lab list, and translate endpoints with GET", async () => {
@@ -107,7 +216,7 @@ describe("ViewerApiClient", () => {
     });
     const client = new ViewerApiClient({ apiBase: "https://offline.example.dev", fetchImpl });
     const feed = await client.fetchSnapshotFeed();
-    expect(feed.demo).toBe(true);
-    expect(feed.snapshot.v).toBe(1);
+    expect(feed.state).toBe("demo");
+    expect(feed.snapshot?.v).toBe(1);
   });
 });

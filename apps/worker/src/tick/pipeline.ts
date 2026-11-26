@@ -29,6 +29,7 @@ import { stubTools, type Tools } from "../tools";
 import { appraise } from "./appraise";
 import { executeAction, idleFor, type ExecOutcome } from "./engine";
 import type { LogRef } from "../log";
+import type { SnapshotPublisher, SnapshotSource } from "../snapshot";
 import type { TickLog, TickRows } from "./ports";
 import { cognition, organismStep, physiologyNow, senseNow } from "./senses";
 import {
@@ -57,6 +58,8 @@ export interface MindTickDeps {
   lease?: Lease;
   /** Scrubs secrets from error text before it is stored. */
   scrub?: (s: string) => string;
+  publishSnapshot?: SnapshotPublisher;
+  onSnapshotError?: (tickId: number, error: unknown) => void;
 }
 
 export interface MindTickResult {
@@ -153,6 +156,25 @@ function skippedPayload(started: Date, ended: Date, reason: string, mode: string
   };
 }
 
+// Covers the bounded scoped DB read (up to 25 s) and Pages upload (up to 15 s).
+const SNAPSHOT_LEASE_REMAINING_MS = 45_000;
+
+async function publishCommittedSnapshot(
+  deps: MindTickDeps,
+  source: SnapshotSource,
+  leaseExpiresAt: number,
+  now: () => Date,
+): Promise<void> {
+  try {
+    if (deps.lease && leaseExpiresAt - now().getTime() < SNAPSHOT_LEASE_REMAINING_MS)
+      throw new Error("tick lease has insufficient time for snapshot publication");
+    await deps.publishSnapshot?.(source);
+  } catch (error) {
+    // The commit already succeeded. Keep the previous public feed and let the next tick catch up.
+    deps.onSnapshotError?.(source.tickId, error);
+  }
+}
+
 export async function runMindTick(deps: MindTickDeps): Promise<MindTickResult> {
   const now = deps.now ?? (() => new Date());
   const cfg = deps.governor ?? governorConfigFromEnv({});
@@ -207,6 +229,8 @@ async function inner(
   const { db, rows: sink, log } = deps;
   const tools = deps.tools ?? stubTools;
   const state = await db.loadState();
+  const phase = typeof state.resident?.["phase"] === "string" ? state.resident["phase"] : "unaware";
+  const leaseExpiresAt = started.getTime() + cfg.leaseTtlMs;
   const g = gate(state.kv, state.resident);
   const plan = pickMode(state.kv, started, cfg);
   noteBudget(plan.budget);
@@ -215,6 +239,30 @@ async function inner(
     const res = await db.commitTick(
       skippedPayload(started, now(), reason, g.run ? "hibernating" : "skipped"),
     );
+    if (deps.publishSnapshot && state.resident) {
+      const mind = readMind(state.kv);
+      if (mind)
+        await publishCommittedSnapshot(
+          deps,
+          {
+            tickId: res.tick_id,
+            started,
+            tickMinutes: cfg.tickMinutes,
+            mind,
+            mode: g.run ? "hibernating" : "skipped",
+            status:
+              state.resident["status"] === "dead"
+                ? "dead"
+                : reason === "paused"
+                  ? "paused"
+                  : "hibernating",
+            phase,
+            lastTickAt: state.resident["last_tick_at"],
+          },
+          leaseExpiresAt,
+          now,
+        );
+    }
     return {
       ran: false,
       reason,
@@ -252,6 +300,7 @@ async function inner(
     mind = organismStep(r.mind, r.mind.world.t - t0);
     note(r.wake);
   }
+  const displayStart = mind;
   const busy = mind.body.alive && mind.world.t > tNow + 1e-6;
   const due = tNow - mind.last_decision_t >= plan.decisionIntervalMin - 1e-6;
 
@@ -563,7 +612,13 @@ async function inner(
         prev_key: out.key,
         last_decision_t: tNow,
       };
-      for (const v of out.viewer) sink.event({ v: 1, actor: "resident", ...v, log_ref: actionRef });
+      for (const v of out.viewer)
+        sink.event({
+          v: 1,
+          actor: "resident",
+          ...v,
+          log_ref: v.kind === "thought" ? thoughtRef : actionRef,
+        });
     }
   } else if (!mind.body.alive) {
     step = "dead";
@@ -647,6 +702,7 @@ async function inner(
     ? (client.traces[client.traces.length - 1] as { provider: string }).provider
     : null;
   const dead = !mind.body.alive;
+  const status = dead ? "dead" : step === "degraded" || step === "idle" ? "degraded" : "running";
   const payload: TickPayload = {
     tick: {
       started_at: started.toISOString(),
@@ -663,7 +719,7 @@ async function inner(
       z: mind.pos.z,
       heading: mind.pos.heading,
       station: mind.station,
-      status: dead ? "dead" : step === "degraded" || step === "idle" ? "degraded" : "running",
+      status,
       organism: mind.organism.state,
       physiology,
       vitals: vitals(mind.body),
@@ -674,6 +730,22 @@ async function inner(
   };
   log.attach(payload);
   const res = await db.commitTick(payload);
+  if (deps.publishSnapshot)
+    await publishCommittedSnapshot(
+      deps,
+      {
+        tickId: res.tick_id,
+        started,
+        tickMinutes: cfg.tickMinutes,
+        mind: dead ? mind : displayStart,
+        mode,
+        status,
+        phase,
+        lastTickAt: started.toISOString(),
+      },
+      leaseExpiresAt,
+      now,
+    );
   return {
     ran: true,
     reason: step,

@@ -22,6 +22,8 @@ export interface TimelineState {
   activeActionLabel: string;
   activeEventSeq: number | null;
   thought: string | null;
+  thinking: boolean;
+  thoughtLogId: number | null;
   physiology: Physiology;
   weather: string;
   timeOfDay: TimeOfDay;
@@ -151,10 +153,21 @@ export function evaluateTimeline(
   let activeActionLabel = snapshot.resident.vitals.alive ? "idle" : "deceased";
   let activeEventSeq: number | null = null;
   let thought: string | null = null;
+  let thinking = false;
+  let thoughtLogId: number | null = null;
   let physiology: Physiology = { ...snapshot.resident.body };
   let weather = snapshot.world.weather;
-  let timeOfDay: TimeOfDay = "day";
-  let fire: FireVisualState = { state: "burning", x: 2.0, z: 0.7 };
+  let timeOfDay: TimeOfDay = snapshot.world.time_of_day ?? "day";
+  const hearth = snapshot.world.entities.find((entity) => entity.type === "fire");
+  const hearthState = (hearth?.appearance as { state?: unknown } | null)?.state;
+  let fire: FireVisualState = {
+    state:
+      hearthState === "lit" || hearthState === "burning" || hearthState === "dying"
+        ? hearthState
+        : "out",
+    x: hearth?.x ?? 2.0,
+    z: hearth?.z ?? 0.7,
+  };
   let alive = snapshot.resident.vitals.alive;
   let causeOfDeath = snapshot.resident.vitals.cause_of_death;
   let status = snapshot.status;
@@ -181,6 +194,11 @@ export function evaluateTimeline(
         break;
       }
       case "anim": {
+        if (ev.data.name === "thinking") {
+          thinking = isActive;
+          thoughtLogId = isActive ? ev.log_id : null;
+          break;
+        }
         if (ev.data.station) station = ev.data.station;
         if (isActive) {
           poseAnim = mapAnimNameToPose(ev.data.name, station);
@@ -192,6 +210,7 @@ export function evaluateTimeline(
       }
       case "thought": {
         thought = ev.data.text;
+        thoughtLogId = ev.log_id;
         break;
       }
       case "body": {
@@ -307,6 +326,8 @@ export function evaluateTimeline(
     activeActionLabel,
     activeEventSeq,
     thought,
+    thinking,
+    thoughtLogId,
     physiology,
     weather,
     timeOfDay,
