@@ -20,6 +20,7 @@ export interface Env {
   MAX_FETCH_DAY?: string;
   MAX_EARLY_TICKS_DAY?: string;
   TICK_MINUTES?: string;
+  TIME_SCALE?: string;
   /** Comma-separated browser origins allowed to read the public API (non-secret), e.g. the Pages URL. */
   ALLOWED_ORIGINS?: string;
   /** Max server-side translations per UTC day (default 150). */

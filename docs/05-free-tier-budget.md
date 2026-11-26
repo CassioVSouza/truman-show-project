@@ -48,7 +48,7 @@
 
 ## Per-day plan (144 ticks)
 - About half of ticks are rest/idle/journal. Active ticks use 1-2 LLM calls (Resident always, Interpreter only when meaningful).
-- Target <= ~200 LLM calls/day total, <= ~30 searches (Tavily 1,000/month), <= ~100 page fetches. Config defaults: `MAX_LLM_CALLS_DAY=200` (split across providers; Gemini Flash-Lite and Groq 8B each allow more per day than this, but per-model caps are unverified), `MAX_SEARCH_DAY=30`, `MAX_FETCH_DAY=100` (Jina keyless 20 RPM, spread over ticks), `TICK_MINUTES=10`, `MAX_EARLY_TICKS_DAY=12`.
+- Target <= ~200 LLM calls/day total, <= ~30 searches (Tavily 1,000/month), <= ~100 page fetches. Config defaults: `MAX_LLM_CALLS_DAY=200` (split across providers; Gemini Flash-Lite and Groq 8B each allow more per day than this, but per-model caps are unverified), `MAX_SEARCH_DAY=30`, `MAX_FETCH_DAY=100` (Jina keyless 20 RPM, spread over ticks), `TICK_MINUTES=10`, `TIME_SCALE=4` (4 world days per real day, 40 world min per 10 real-min tick; decision ticks stay 10 real min, same LLM budget), `MAX_EARLY_TICKS_DAY=12`.
 - Organism step, sensation templating, atlas labeling, perception and logging are plain code: zero API cost.
 
 ## Survival adds ticks and calls

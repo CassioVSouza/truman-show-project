@@ -36,9 +36,11 @@ import {
   HISTORY_CAP,
   LESSON_CAP,
   QUESTION_CAP,
+  anchorClock,
   genesis,
   isoAt,
   readMind,
+  worldTimeAt,
   type HistoryItem,
   type MindState,
 } from "./state";
@@ -274,8 +276,14 @@ async function inner(
     };
   }
 
-  let mind = readMind(state.kv) ?? genesis(Number(state.kv["world_seed"]) || 1, started.getTime());
-  const tNow = (started.getTime() - mind.born_ms) / 60000;
+  const loaded = readMind(state.kv);
+  const prevScale = loaded ? (loaded.clock_scale ?? 1) : cfg.timeScale;
+  let mind = anchorClock(
+    loaded ?? genesis(Number(state.kv["world_seed"]) || 1, started.getTime(), cfg.timeScale),
+    started.getTime(),
+    cfg.timeScale,
+  );
+  const tNow = worldTimeAt(mind, started.getTime());
   const day = started.toISOString().slice(0, 10);
   const client = new LlmClient(deps.providers, {
     exhausted: plan.budget.exhausted,
@@ -302,7 +310,11 @@ async function inner(
   }
   const displayStart = mind;
   const busy = mind.body.alive && mind.world.t > tNow + 1e-6;
-  const due = tNow - mind.last_decision_t >= plan.decisionIntervalMin - 1e-6;
+  const realSinceDecisionMin =
+    mind.last_decision_ms !== undefined
+      ? (started.getTime() - mind.last_decision_ms) / 60000
+      : (tNow - mind.last_decision_t) / prevScale;
+  const due = realSinceDecisionMin >= plan.decisionIntervalMin - 1e-6;
 
   if (
     mind.body.alive &&
@@ -611,6 +623,7 @@ async function inner(
         },
         prev_key: out.key,
         last_decision_t: tNow,
+        last_decision_ms: started.getTime(),
       };
       for (const v of out.viewer)
         sink.event({

@@ -86,8 +86,19 @@ describe("governor modes (doc 05)", () => {
       {
         maxLlmCallsDay: 50,
         maxSearchDay: DEFAULT_GOVERNOR.maxSearchDay,
+        timeScale: 4,
       },
     );
+  });
+  test("TIME_SCALE defaults to 4, clamps to 1..24, and ignores invalid values", () => {
+    expect(governorConfigFromEnv({}).timeScale).toBe(4);
+    expect(governorConfigFromEnv({ TIME_SCALE: "1" }).timeScale).toBe(1);
+    expect(governorConfigFromEnv({ TIME_SCALE: "8" }).timeScale).toBe(8);
+    expect(governorConfigFromEnv({ TIME_SCALE: "0.25" }).timeScale).toBe(1);
+    expect(governorConfigFromEnv({ TIME_SCALE: "99" }).timeScale).toBe(24);
+    expect(governorConfigFromEnv({ TIME_SCALE: "0" }).timeScale).toBe(4);
+    expect(governorConfigFromEnv({ TIME_SCALE: "-4" }).timeScale).toBe(4);
+    expect(governorConfigFromEnv({ TIME_SCALE: "fast" }).timeScale).toBe(4);
   });
 });
 

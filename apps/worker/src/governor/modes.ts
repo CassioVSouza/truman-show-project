@@ -4,12 +4,18 @@ import type { Env } from "../env";
 
 export type Mode = "normal" | "thrifty" | "reading_only" | "idle" | "hibernating";
 
+export const DEFAULT_TIME_SCALE = 4;
+export const MIN_TIME_SCALE = 1;
+export const MAX_TIME_SCALE = 24;
+
 export interface GovernorConfig {
   maxLlmCallsDay: number;
   maxSearchDay: number;
   maxFetchDay: number;
   maxEarlyTicksDay: number;
   tickMinutes: number;
+  /** World minutes elapsed per real wall-clock minute (default 4; clamped to 1..24). */
+  timeScale: number;
   /** Fraction of any budget at which thrifty starts. */
   thriftyAt: number;
   /** Consecutive failed ticks before hibernating (state preserved, resumable). */
@@ -23,6 +29,7 @@ export const DEFAULT_GOVERNOR: GovernorConfig = {
   maxFetchDay: 100,
   maxEarlyTicksDay: 12,
   tickMinutes: 10,
+  timeScale: DEFAULT_TIME_SCALE,
   thriftyAt: 0.7,
   hardFailStreak: 6,
   leaseTtlMs: 120_000,
@@ -33,6 +40,13 @@ const num = (v: string | undefined, d: number): number => {
   return Number.isFinite(n) && n > 0 ? n : d;
 };
 
+export function clampTimeScale(v: string | undefined): number {
+  if (v === undefined || v.trim() === "") return DEFAULT_TIME_SCALE;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_TIME_SCALE;
+  return Math.min(MAX_TIME_SCALE, Math.max(MIN_TIME_SCALE, n));
+}
+
 export function governorConfigFromEnv(
   env: Partial<
     Pick<
@@ -42,6 +56,7 @@ export function governorConfigFromEnv(
       | "MAX_FETCH_DAY"
       | "MAX_EARLY_TICKS_DAY"
       | "TICK_MINUTES"
+      | "TIME_SCALE"
     >
   >,
 ): GovernorConfig {
@@ -53,6 +68,7 @@ export function governorConfigFromEnv(
     maxFetchDay: num(env.MAX_FETCH_DAY, d.maxFetchDay),
     maxEarlyTicksDay: num(env.MAX_EARLY_TICKS_DAY, d.maxEarlyTicksDay),
     tickMinutes: num(env.TICK_MINUTES, d.tickMinutes),
+    timeScale: clampTimeScale(env.TIME_SCALE),
   };
 }
 

@@ -12,6 +12,7 @@ import {
 } from "@truman/world";
 import { newBody, STARTING_SKILLS, type BodyState, type Skills } from "@truman/body";
 import { newOrganism, type OrganismRun, type Physiology } from "@truman/organism";
+import { DEFAULT_TIME_SCALE } from "../governor";
 import type { MemoryItem } from "../memory";
 
 export interface HistoryItem {
@@ -62,15 +63,23 @@ export interface MindState {
   pending: PendingDecision | null;
   /** Key of the previous action (for habituation/repeat rules). */
   prev_key: string | null;
-  /** Minutes since genesis of the last Resident decision. */
+  /** Minutes since genesis of the last Resident decision (world minutes). */
   last_decision_t: number;
+  /** Real wall-clock ms of the last Resident decision (keeps decision cadence in real minutes across scale changes). */
+  last_decision_ms?: number;
+  /** Real wall-clock ms at which `clock_anchor_t` occurred. Absent on legacy 1x blobs (defaults to `born_ms`). */
+  clock_anchor_ms?: number;
+  /** World minutes at `clock_anchor_ms`. Absent on legacy 1x blobs (defaults to 0). */
+  clock_anchor_t?: number;
+  /** World minutes per real minute active from the anchor onwards. Absent on legacy 1x blobs (defaults to 1). */
+  clock_scale?: number;
 }
 
 export const HISTORY_CAP = 12;
 export const LESSON_CAP = 12;
 export const QUESTION_CAP = 6;
 
-export function genesis(seed: number, bornMs: number): MindState {
+export function genesis(seed: number, bornMs: number, timeScale = DEFAULT_TIME_SCALE): MindState {
   const world = createWorld(seed);
   const map = mapOf(world);
   return {
@@ -97,6 +106,9 @@ export function genesis(seed: number, bornMs: number): MindState {
     pending: null,
     prev_key: null,
     last_decision_t: -1e9,
+    clock_anchor_ms: bornMs,
+    clock_anchor_t: 0,
+    clock_scale: timeScale,
   };
 }
 
@@ -115,5 +127,39 @@ export function readMind(kv: Record<string, unknown>): MindState | null {
 }
 
 export const clock = (m: MindState): number => m.world.t;
-export const isoAt = (m: MindState, t: number): string =>
-  new Date(m.born_ms + t * 60000).toISOString();
+
+/** Maps a real wall-clock timestamp (ms) to world minutes using the mind's clock anchor (legacy blobs default to 1x from born_ms). */
+export function worldTimeAt(m: MindState, ms: number): number {
+  const anchorMs = m.clock_anchor_ms ?? m.born_ms;
+  const anchorT = m.clock_anchor_t ?? 0;
+  const scale = m.clock_scale ?? 1;
+  return Math.max(0, anchorT + ((ms - anchorMs) / 60000) * scale);
+}
+
+/**
+ * Ensures the mind's clock anchor matches `timeScale`. When migrating a legacy 1x blob or changing `timeScale`,
+ * re-anchors continuously at `(nowMs, worldTimeAt(m, nowMs))` so world time never jumps.
+ */
+export function anchorClock(m: MindState, nowMs: number, timeScale: number): MindState {
+  if (
+    m.clock_anchor_ms !== undefined &&
+    m.clock_anchor_t !== undefined &&
+    m.clock_scale === timeScale
+  ) {
+    return m;
+  }
+  return {
+    ...m,
+    clock_anchor_ms: nowMs,
+    clock_anchor_t: worldTimeAt(m, nowMs),
+    clock_scale: timeScale,
+  };
+}
+
+/** Maps a world-minute timestamp `t` to a real wall-clock ISO string for viewer playback. */
+export function isoAt(m: MindState, t: number): string {
+  const anchorMs = m.clock_anchor_ms ?? m.born_ms;
+  const anchorT = m.clock_anchor_t ?? 0;
+  const scale = m.clock_scale ?? 1;
+  return new Date(anchorMs + ((t - anchorT) / scale) * 60000).toISOString();
+}

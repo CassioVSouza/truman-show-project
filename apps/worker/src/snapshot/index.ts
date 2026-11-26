@@ -2,7 +2,7 @@ import { Event, Snapshot, type LiveFeed, type InventoryItem } from "@truman/cont
 import { vitals } from "@truman/body";
 import { dayIndex, fireState, seasonAt, timeOfDay, weatherAt } from "@truman/world";
 import { physiologyNow } from "../tick/senses";
-import type { MindState } from "../tick/state";
+import { worldTimeAt, type MindState } from "../tick/state";
 
 export interface SnapshotSource {
   tickId: number;
@@ -97,7 +97,7 @@ export function createSnapshotPublisher(
     const until = new Date(started.getTime() + windowMs);
     const events = publicEvents(await readEvents(started, until));
     const world = mind.world;
-    const clock = Math.min(world.t, Math.max(0, (started.getTime() - mind.born_ms) / 60_000));
+    const clock = Math.min(world.t, worldTimeAt(mind, started.getTime()));
     const snapshot = Snapshot.parse({
       v: world.v,
       seq: tickId,

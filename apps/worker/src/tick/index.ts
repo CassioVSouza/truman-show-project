@@ -68,5 +68,5 @@ export { runMindTick, describeChoice } from "./pipeline";
 export type { MindTickDeps, MindTickResult } from "./pipeline";
 export { MemoryRows } from "./memory-log";
 export type { TickLog, TickRows, EventInput } from "./ports";
-export { genesis, readMind } from "./state";
+export { anchorClock, genesis, isoAt, readMind, worldTimeAt } from "./state";
 export type { MindState } from "./state";
