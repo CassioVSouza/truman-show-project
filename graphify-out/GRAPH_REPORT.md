@@ -1,23 +1,23 @@
 # Graph Report - TrumanShowProject  (2026-11-26)
 
 ## Corpus Check
-- 200 files · ~136,977 words
+- 210 files · ~145,834 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 18 file(s) not represented in the graph (top: .toml 11, (none) 5, .example 1)
 
 ## Summary
-- 1714 nodes · 4173 edges · 99 communities (81 shown, 18 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 54 edges (avg confidence: 0.85)
+- 1790 nodes · 4472 edges · 105 communities (87 shown, 18 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 56 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1bf6dc3b`
+- Built from commit: `3c696e37`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - Data Model Schema
-- api/client.ts
+- contracts/src/index.ts
 - Hidden-layer leak test
 - Worker Brain & Infrastructure
 - Body & Organism Design
@@ -66,8 +66,8 @@
 - tsconfig.json
 - viewer/README.md
 - tick/index.ts
-- body.ts
-- sensation.ts
+- calibration.ts
+- organism.ts
 - perception.ts
 - testkit.ts
 - llm/index.ts
@@ -81,24 +81,25 @@
 - modes.ts
 - world/src/index.ts
 - testkit.ts
-- el
-- Task 0 (verify free-tier limits)
-- organism/src/index.test.ts
+- worldScene.ts
+- build.ts
+- viewer/package.json
 - labViews.ts
-- MindState
+- newBody
 - i18n/index.ts
 - memory/index.ts
-- main.ts
+- el
 - tick/index.ts
 - ViewerApp
 - Task 0 (verify free-tier limits)
-- llm/client.ts
-- map.ts
-- organism.ts
+- api/client.ts
+- dist
+- soak7d.test.ts
 - snapshot/index.ts
 - compilerOptions
 - Hard Rules (9)
 - liaison.md
+- body/src/actions.ts
 - ops-budget.md
 - body-organism-engineer.md
 - data-api-engineer.md
@@ -107,21 +108,26 @@
 - world-engineer.md
 - Truman Show Project (Antigravity)
 - ASSETS.md
-- TickRows
-- brain-engineer.md
+- ViewerBeat
+- body.ts
+- body/src/index.test.ts
 - vitest
+- body/src/types.ts
+- body/src/config.ts
+- main.ts
+- 0007_viewer_presence.sql
 
 ## God Nodes (most connected - your core abstractions)
-1. `vitest` - 36 edges
-2. `ViewerApp` - 34 edges
-3. `inner()` - 33 edges
-4. `WorldScene` - 32 edges
-5. `el()` - 30 edges
-6. `dist()` - 29 edges
-7. `environmentAt()` - 27 edges
-8. `t()` - 26 edges
-9. `run()` - 23 edges
-10. `perceive()` - 23 edges
+1. `vitest` - 42 edges
+2. `dist()` - 40 edges
+3. `ViewerApp` - 36 edges
+4. `inner()` - 35 edges
+5. `WorldScene` - 33 edges
+6. `el()` - 30 edges
+7. `t()` - 27 edges
+8. `environmentAt()` - 27 edges
+9. `gather()` - 24 edges
+10. `perceive()` - 24 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Rules` --references--> `FakeProvider`  [INFERRED]
@@ -143,15 +149,15 @@
 - **Free-tier cost control and degradation** — docs_05_free_tier_budget_governor_modes, docs_05_free_tier_budget_per_day_plan, docs_05_free_tier_budget_db_growth, docs_05_free_tier_budget_early_ticks, docs_05_free_tier_budget_task_0 [INFERRED 0.85]
 - **Hidden-layer protection (contracts, leak test, QA, persona)** — docs_03_contracts_two_layers, docs_03_contracts_leak_test, docs_11_persona_and_behaviour_persona_prompt, _claude_agents_qa_guardian_qa_guardian, _claude_agents_brain_engineer_brain_engineer [INFERRED 0.85]
 
-## Communities (99 total, 18 thin omitted)
+## Communities (105 total, 18 thin omitted)
 
 ### Community 0 - "Data Model Schema"
 Cohesion: 0.07
 Nodes (38): appraisals, beliefs, blueprints, deaths, decisions, dreams, environment, events (+30 more)
 
-### Community 1 - "api/client.ts"
-Cohesion: 0.07
-Nodes (36): SearchParams, SnapshotFeed, ViewerApiConfig, DEMO_CONTEXT, DEMO_EVENTS, DEMO_GOVERNOR, DEMO_LISTS, DEMO_LOG_ENTRIES (+28 more)
+### Community 1 - "contracts/src/index.ts"
+Cohesion: 0.10
+Nodes (19): Action, base, DecideOutput, EmotionLabel, InventoryItem, LLMErrorKind, LogPageResponse, OutcomeReview (+11 more)
 
 ### Community 2 - "Hidden-layer leak test"
 Cohesion: 0.24
@@ -170,8 +176,8 @@ Cohesion: 0.17
 Nodes (13): data-api-engineer agent, Read-only public, Everything is replayable, Translation layer, Admin routes (ADMIN_TOKEN), LogEntry (canonical, append-only), Public API (GET, edge-cached), Database growth and archiving (+5 more)
 
 ### Community 6 - "leak-scan.ts"
-Cohesion: 0.11
-Nodes (22): ResidentPromptInput, cleanInput(), FAKE_APPRAISAL, FAKE_BODY, FAKE_EMOTION_TOP3, FAKE_ORGANISM, FAKE_PHYSIOLOGY, FAKE_SECRETS (+14 more)
+Cohesion: 0.14
+Nodes (12): FAKE_APPRAISAL, FAKE_BODY, FAKE_EMOTION_TOP3, FAKE_ORGANISM, FAKE_PHYSIOLOGY, hiddenValueStrings(), PROMPT_MARKERS, rules (+4 more)
 
 ### Community 7 - "Contracts Package Config"
 Cohesion: 0.25
@@ -227,15 +233,15 @@ Nodes (10): liaison agent, Codex team, Truman Show Project, Team and Workflow, T
 
 ### Community 26 - "pipeline.ts"
 Cohesion: 0.10
-Nodes (35): Budget, MEMORY_CAP, toMemoryRow(), ActionName, ALL_ACTIONS, FORMAT, MENU, menuLines() (+27 more)
+Nodes (40): applyUsage(), pickMode(), LogRef, toMemoryRow(), animationNames, createSnapshotPublisher(), isoDate(), publicEvents() (+32 more)
 
 ### Community 27 - "world/src/actions.ts"
-Cohesion: 0.13
-Nodes (50): ActionT, Allow, ExecOutcome, fail(), fromWorld(), Plan, ViewerEvent, competentAction() (+42 more)
+Cohesion: 0.12
+Nodes (53): ActionT, Allow, executeAction(), fail(), fromWorld(), idleFor(), nearStation(), Plan (+45 more)
 
 ### Community 28 - "api/index.ts"
-Cohesion: 0.06
-Nodes (46): FakeRpc, memCache(), mk(), TOKEN, ApiEnv, defaultEdgeCache(), EdgeCache, errorJson() (+38 more)
+Cohesion: 0.05
+Nodes (50): FakeRpc, memCache(), mk(), TOKEN, ApiEnv, defaultEdgeCache(), EdgeCache, errorJson() (+42 more)
 
 ### Community 29 - "updates"
 Cohesion: 0.18
@@ -298,48 +304,52 @@ Cohesion: 0.40
 Nodes (4): allowBuilds, esbuild, workerd, packages
 
 ### Community 44 - "WorldScene"
-Cohesion: 0.06
-Nodes (31): dependencies, three@^0.174.0, @truman/contracts@workspace:*, @truman/world@workspace:*, devDependencies, @types/three@^0.174.0, vite@^6.2.0, @truman/contracts (+23 more)
+Cohesion: 0.16
+Nodes (5): dist2D(), distToPolyline(), makeSeededRng(), WorldScene, WorldMap
 
 ### Community 46 - ".prettierrc.json"
 Cohesion: 0.50
 Nodes (3): endOfLine, printWidth, trailingComma
 
-### Community 51 - "body.ts"
-Cohesion: 0.06
-Nodes (81): ActionResult, HAND_PLACES, performAction(), pushFlinch(), addCondition(), addWound(), advanceBody(), AdvanceOptions (+73 more)
+### Community 50 - "tick/index.ts"
+Cohesion: 0.09
+Nodes (3): MemoryRows, EventInput, TickRows
 
-### Community 52 - "sensation.ts"
-Cohesion: 0.15
-Nodes (24): sense(), makeTemperament(), newOrganism(), targets(), derivePhysiology(), physiologySources(), clamp(), hash32() (+16 more)
+### Community 51 - "calibration.ts"
+Cohesion: 0.17
+Nodes (14): effectiveTemp(), CalibrationWorld, makeStubWorld(), Policy, PolicyChoice, randomPolicy(), SimResult, simulatePolicy() (+6 more)
+
+### Community 52 - "organism.ts"
+Cohesion: 0.06
+Nodes (70): Senses, BodySignals, EMOTION_ATLAS, EmotionLabel, emotionLabels(), FEATURES, Proto, DEFAULT_BASELINES (+62 more)
 
 ### Community 53 - "perception.ts"
-Cohesion: 0.10
-Nodes (38): executeAction(), idleFor(), nearStation(), targetOf(), renderReflexEvents(), restSpot(), insideCabin(), ambientLines() (+30 more)
+Cohesion: 0.13
+Nodes (29): ambientLines(), bearingDeg(), cap(), count(), directionPhrase(), distPhrase(), perceive(), Perception (+21 more)
 
 ### Community 54 - "testkit.ts"
-Cohesion: 0.18
-Nodes (13): FakeDb, CommitResult, Db, LoadedState, TickPayload, Row, clone(), makeAgent() (+5 more)
+Cohesion: 0.10
+Nodes (24): FakeDb, CommitResult, LoadedState, TickPayload, cfg, categoryOf(), idOf(), LIFE_KINDS (+16 more)
 
 ### Community 55 - "llm/index.ts"
-Cohesion: 0.12
-Nodes (25): LiveTickOptions, FakeProvider, FakeReply, GEMINI_DEFAULT_MODEL, GeminiProvider, GeminiResponse, httpError(), REFUSAL_FINISH (+17 more)
+Cohesion: 0.05
+Nodes (59): Responsibilities, Rules, Token economy (mandatory), ClientOptions, extractJson(), GenerateRequest, GenerateResult, LlmClient (+51 more)
 
 ### Community 56 - "Lab menus (technical)"
 Cohesion: 0.20
 Nodes (10): viewer-engineer agent, Supabase Postgres, Time model (timeline of timestamped events), Viewer (Vite + Three.js on Pages), Worker API (read-only, edge cached), Worker brain (Cloudflare Cron), Event (engine to viewer), Phase 1B Mind, web, public (+2 more)
 
 ### Community 57 - "worker/src/index.ts"
-Cohesion: 0.17
-Nodes (17): parseOrigins(), MyMemoryTranslator, Translator, WorkersAiTranslator, b64Bytes(), base64Forms(), clampTimeout(), Env (+9 more)
+Cohesion: 0.13
+Nodes (23): parseOrigins(), WorkersAiTranslator, b64Bytes(), base64Forms(), clampTimeout(), Env, MAX_FETCH_TIMEOUT_MS, MIN_FETCH_TIMEOUT_MS (+15 more)
 
 ### Community 59 - "body-organism-engineer agent"
 Cohesion: 0.33
 Nodes (7): body-organism-engineer agent, Early-wake tick cap (MAX_EARLY_TICKS_DAY), Emotion atlas (spectators only), Physiology vector, Sensation text and unnamed urges, Early wake tick, Autonomic reflexes
 
 ### Community 63 - "world.ts"
-Cohesion: 0.18
-Nodes (20): View, Environment, WORLD_CONFIG, WorldConfig, burn(), burnRate(), fireHeat(), fireState() (+12 more)
+Cohesion: 0.20
+Nodes (15): View, Environment, WORLD_CONFIG, burn(), burnRate(), fireHeat(), fireState(), nextHourT() (+7 more)
 
 ### Community 64 - "tools/index.ts"
 Cohesion: 0.12
@@ -347,55 +357,55 @@ Nodes (29): ALLOWED_EXACT_TYPES, DEFAULT_MAX_BYTES, DEFAULT_MAX_REDIRECTS, DEFAU
 
 ### Community 65 - "climate.ts"
 Cohesion: 0.12
-Nodes (35): abundanceRamp(), ambientTempOutside(), annual(), baseOutsideTemp(), clockMinute(), dayIndex(), dayLengthHours(), daylightAt() (+27 more)
+Nodes (42): abundanceRamp(), ambientTempOutside(), annual(), baseOutsideTemp(), Clock, clockMinute(), dayIndex(), dayLengthHours() (+34 more)
 
 ### Community 66 - "modes.ts"
-Cohesion: 0.13
-Nodes (16): applyUsage(), canEarlyTick(), DEFAULT_GOVERNOR, InMemoryLease, Lease, leaseFree(), LeaseRow, ModePlan (+8 more)
+Cohesion: 0.10
+Nodes (21): Rpc, flagOn(), gate(), GateDecision, canEarlyTick(), clampTimeScale(), DEFAULT_GOVERNOR, DEFAULT_TIME_SCALE (+13 more)
 
 ### Community 67 - "world/src/index.ts"
-Cohesion: 0.13
-Nodes (25): start(), Clock, ITEM_DEFS, ItemDef, STARTER_KIT, PACKAGE, advanceInventory(), describeInventory() (+17 more)
+Cohesion: 0.14
+Nodes (21): Actor, skills, start(), describeInventory(), foodEffects, invAdd(), itemDef(), num() (+13 more)
 
 ### Community 68 - "testkit.ts"
 Cohesion: 0.11
 Nodes (26): AMBIGUOUS_PLAIN_WORDS, BAR_PATTERNS, BAR_WORDS, BW, EMOTION_WORDS, esc(), framingRe(), GIVEN_NAMES (+18 more)
 
-### Community 69 - "el"
-Cohesion: 0.29
-Nodes (15): stationLabel(), t(), clear(), el(), formatDateTime(), downloadBlob(), kvGroup(), kvRow() (+7 more)
+### Community 69 - "worldScene.ts"
+Cohesion: 0.12
+Nodes (22): intersectsSceneryCorridor(), sceneryCorridors(), SceneryFootprint, WalkSegment, CameraMode, CharacterRig, HIDDEN_SCENERY, SceneryBatch (+14 more)
 
-### Community 70 - "Task 0 (verify free-tier limits)"
-Cohesion: 0.16
-Nodes (19): buildPrompt(), BuiltPrompt, InputSchema, Lines, neutraliseMarkers(), PromptMessage, PromptRole, section() (+11 more)
+### Community 70 - "build.ts"
+Cohesion: 0.24
+Nodes (9): buildPrompt(), InputSchema, Lines, neutraliseMarkers(), PromptRole, ResidentPromptInput, section(), UNTRUSTED_CLOSE (+1 more)
 
-### Community 71 - "organism/src/index.test.ts"
-Cohesion: 0.13
-Nodes (16): EMOTION_ATLAS, EmotionLabel, FEATURES, Proto, PACKAGE, calmBody, EMOTION_EXTRA, findLeaks() (+8 more)
+### Community 71 - "viewer/package.json"
+Cohesion: 0.11
+Nodes (21): dependencies, three@^0.174.0, @truman/contracts@workspace:*, @truman/world@workspace:*, devDependencies, @types/three@^0.174.0, vite@^6.2.0, @truman/contracts (+13 more)
 
 ### Community 72 - "labViews.ts"
-Cohesion: 0.18
-Nodes (5): createViewerApiClient(), stripTrailingSlash(), ViewerApiClient, runSearch(), SearchResponse
+Cohesion: 0.13
+Nodes (10): createViewerApiClient(), stripTrailingSlash(), ViewerApiClient, downloadBlob(), kvGroup(), kvRow(), metricBar(), num() (+2 more)
 
-### Community 73 - "MindState"
-Cohesion: 0.18
-Nodes (14): buildInterpreterPrompt(), SnapshotSource, appraise(), Appraised, REPEATABLE, MindState, AgentOptions, Appraisal (+6 more)
+### Community 73 - "newBody"
+Cohesion: 0.15
+Nodes (17): advanceBody(), catchUp(), needsFineStep(), newBody(), act(), hourEnv(), run(), scenarios (+9 more)
 
 ### Community 74 - "i18n/index.ts"
-Cohesion: 0.14
-Nodes (15): EN, I18nKey, ChromeTranslator, ChromeTranslatorApi, DICTS, getChromeTranslator(), memoryCache, toApiLang() (+7 more)
+Cohesion: 0.18
+Nodes (12): EN, I18nKey, ChromeTranslator, ChromeTranslatorApi, DICTS, getChromeTranslator(), memoryCache, stationLabel() (+4 more)
 
 ### Community 75 - "memory/index.ts"
-Cohesion: 0.20
-Nodes (18): affectResonance(), affectSnapshot, clamp(), keywordScore(), makeMemory(), MemoryItem, MemoryKind, NewMemoryDraft (+10 more)
+Cohesion: 0.19
+Nodes (19): affectResonance(), affectSnapshot, clamp(), keywordScore(), makeMemory(), MEMORY_CAP, MemoryItem, MemoryKind (+11 more)
 
-### Community 76 - "main.ts"
-Cohesion: 0.12
-Nodes (22): SnapshotFeedResult, StatusPayload, UiLang, mount, Section, SPEEDS, evaluateTimeline(), FireVisualState (+14 more)
+### Community 76 - "el"
+Cohesion: 0.18
+Nodes (24): t(), UiLang, TimelineState, Attrs, Child, clear(), el(), formatDateTime() (+16 more)
 
 ### Community 77 - "tick/index.ts"
-Cohesion: 0.16
-Nodes (15): flagOn(), gate(), GateDecision, Mode, cfg, mk(), CpuStats, measureCpu() (+7 more)
+Cohesion: 0.17
+Nodes (13): Db, GovernorConfig, Mode, SnapshotPublisher, runTick(), runTickInner(), tickLog(), TickResult (+5 more)
 
 ### Community 78 - "ViewerApp"
 Cohesion: 0.26
@@ -405,21 +415,21 @@ Nodes (3): ViewerApp, LabTab, LifeTab
 Cohesion: 0.14
 Nodes (14): ops-budget agent, world-engineer agent, Symbolic perception (no server renderer), Free-tier services table, Task 0 (verify free-tier limits), Genesis (one-time), Phase 0 Foundations, Early death risk (+6 more)
 
-### Community 80 - "llm/client.ts"
+### Community 80 - "api/client.ts"
 Cohesion: 0.22
-Nodes (8): ClientOptions, extractJson(), GenerateRequest, GenerateResult, LlmClient, LlmRole, LlmTraceRow, ProviderUsage
+Nodes (14): SearchParams, SnapshotFeed, ViewerApiConfig, DEMO_CONTEXT, DEMO_EVENTS, DEMO_GOVERNOR, DEMO_LISTS, DEMO_LOG_ENTRIES (+6 more)
 
-### Community 81 - "map.ts"
-Cohesion: 0.32
-Nodes (10): build(), cache, nearestOnPolyline(), nearestOnSegment(), polar(), round2(), hash32(), rand01() (+2 more)
-
-### Community 82 - "organism.ts"
+### Community 81 - "dist"
 Cohesion: 0.16
-Nodes (22): Senses, BodySignals, DEFAULT_BASELINES, DEFAULT_DECAY_MIN, DEFAULT_ORGANISM_CONFIG, OrganismConfig, NEUTRAL, RULES (+14 more)
+Nodes (36): restSpot(), build(), cache, dist(), insideCabin(), nearestOnPolyline(), nearestOnSegment(), polar() (+28 more)
+
+### Community 82 - "soak7d.test.ts"
+Cohesion: 0.23
+Nodes (11): Budget, cleanInput(), FAKE_SECRETS, hiddenKeyNames(), EMOTION_LABELS, FRAMING_WORDS, LeakRules, strictHiddenNames() (+3 more)
 
 ### Community 83 - "snapshot/index.ts"
-Cohesion: 0.14
-Nodes (21): pctRegex(), redactValue(), animationNames, createSnapshotPublisher(), isoDate(), publicEvents(), publicInventory(), SnapshotEventReader (+13 more)
+Cohesion: 0.20
+Nodes (13): pctRegex(), redactValue(), cfErrorDetail(), CloudflareError, CloudflareResult, makePagesSnapshotWriter(), cf(), PagesSnapshotEnv (+5 more)
 
 ### Community 84 - "compilerOptions"
 Cohesion: 0.20
@@ -432,6 +442,10 @@ Nodes (7): Hard Rules (9), No content censorship / Discoverable, not censored, N
 ### Community 86 - "liaison.md"
 Cohesion: 0.33
 Nodes (5): First, always, Hard rules you protect (flag any request that violates them, ask before changing), Style, Token economy (mandatory), What you do
+
+### Community 87 - "body/src/actions.ts"
+Cohesion: 0.24
+Nodes (14): ExecOutcome, ActionResult, HAND_PLACES, performAction(), pushFlinch(), painOf(), wakeReason(), draw() (+6 more)
 
 ### Community 88 - "ops-budget.md"
 Cohesion: 0.40
@@ -457,37 +471,53 @@ Nodes (3): Responsibilities, Rules, Token economy (mandatory)
 Cohesion: 0.50
 Nodes (3): Responsibilities, Rules, Token economy (mandatory)
 
-### Community 96 - "TickRows"
-Cohesion: 0.11
-Nodes (7): GovernorConfig, SnapshotPublisher, MindTickDeps, TickLog, TickRows, SimOptions, Tools
+### Community 96 - "ViewerBeat"
+Cohesion: 0.19
+Nodes (5): BEAT_INTERVAL_MS, getViewerToken(), TokenStore, ViewerBeat, ViewerBeatDeps
 
-### Community 98 - "brain-engineer.md"
-Cohesion: 0.33
-Nodes (4): Responsibilities, Rules, Token economy (mandatory), LLMProvider
+### Community 97 - "body.ts"
+Cohesion: 0.34
+Nodes (14): addCondition(), addWound(), clamp(), die(), edge(), fmtT(), isoAt(), mark() (+6 more)
 
-### Community 99 - "vitest"
-Cohesion: 0.10
-Nodes (15): cfg, categoryOf(), idOf(), LIFE_KINDS, Log, LogDraft, LogKindName, LogRef (+7 more)
+### Community 98 - "body/src/index.test.ts"
+Cohesion: 0.16
+Nodes (12): competentPolicy(), idlePolicy(), PACKAGE, awake, coldNight, hot, mild, HINT_BANDS (+4 more)
+
+### Community 101 - "body/src/types.ts"
+Cohesion: 0.18
+Nodes (10): AdvanceOptions, PolicyView, BodyState, Condition, ConditionName, HistorySample, ReflexKind, StepResult (+2 more)
+
+### Community 102 - "body/src/config.ts"
+Cohesion: 0.22
+Nodes (10): NewBodyOptions, ALL_CAUSES, BodyConfig, DeepPartial, DEFAULT_BODY_CONFIG, makeBodyConfig(), merge(), DeathCause (+2 more)
+
+### Community 103 - "main.ts"
+Cohesion: 0.22
+Nodes (7): SnapshotFeedResult, StatusPayload, mount, Section, SPEEDS, runSearch(), SearchResponse
+
+### Community 104 - "0007_viewer_presence.sql"
+Cohesion: 0.83
+Nodes (3): api_viewer_beat(), viewer_presence, viewer_presence_seen_idx
 
 ## Knowledge Gaps
 - **45 isolated node(s):** `../../tsconfig.base.json`, `../../tsconfig.base.json`, `../../tsconfig.base.json`, `../../tsconfig.base.json`, `../../tsconfig.base.json` (+40 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 583 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 605 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `vitest` connect `vitest` to `api/client.ts`, `leak-scan.ts`, `TickPayload`, `package.json`, `pipeline.ts`, `world/src/actions.ts`, `api/index.ts`, `body.ts`, `testkit.ts`, `llm/index.ts`, `world.ts`, `tools/index.ts`, `climate.ts`, `modes.ts`, `world/src/index.ts`, `Task 0 (verify free-tier limits)`, `organism/src/index.test.ts`, `i18n/index.ts`, `memory/index.ts`, `tick/index.ts`, `snapshot/index.ts`?**
-  _High betweenness centrality (0.080) - this node is a cross-community bridge._
+- **Why does `vitest` connect `vitest` to `leak-scan.ts`, `TickPayload`, `package.json`, `pipeline.ts`, `world/src/actions.ts`, `api/index.ts`, `organism.ts`, `testkit.ts`, `llm/index.ts`, `worker/src/index.ts`, `world.ts`, `tools/index.ts`, `climate.ts`, `modes.ts`, `world/src/index.ts`, `worldScene.ts`, `newBody`, `i18n/index.ts`, `memory/index.ts`, `api/client.ts`, `dist`, `soak7d.test.ts`, `snapshot/index.ts`, `ViewerBeat`, `body/src/index.test.ts`?**
+  _High betweenness centrality (0.066) - this node is a cross-community bridge._
 - **What connects `../../tsconfig.base.json`, `../../tsconfig.base.json`, `../../tsconfig.base.json` to the rest of the system?**
   _45 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Data Model Schema` be split into smaller, more focused modules?**
   _Cohesion score 0.07152496626180836 - nodes in this community are weakly interconnected._
-- **Why does `WorldScene` connect `WorldScene` to `main.ts`, `ViewerApp`?**
-  _High betweenness centrality (0.028) - this node is a cross-community bridge._
-- **Should `api/client.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.07474747474747474 - nodes in this community are weakly interconnected._
+- **Why does `three` connect `viewer/package.json` to `worldScene.ts`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **Should `contracts/src/index.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.09523809523809523 - nodes in this community are weakly interconnected._
+- **Why does `WorldScene` connect `WorldScene` to `el`, `worldScene.ts`, `ViewerApp`, `main.ts`?**
+  _High betweenness centrality (0.012) - this node is a cross-community bridge._
 - **Should `leak-scan.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.10967741935483871 - nodes in this community are weakly interconnected._
-- **Should `package.json` be split into smaller, more focused modules?**
-  _Cohesion score 0.09538461538461539 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.13725490196078433 - nodes in this community are weakly interconnected._

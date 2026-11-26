@@ -64,6 +64,8 @@ export function competentAction(m: MindState, step: number): Record<string, unkn
   const wood = invCount(m.inventory, "firewood");
   const jar = findItem(m.inventory, "water jar");
   const jarFill = Number((jar?.props as { fill?: number } | undefined)?.fill ?? 0);
+  const coat = findItem(m.inventory, "coat");
+  const coatWorn = Boolean((coat?.props as { worn?: boolean } | undefined)?.worn);
   const base = (thought: string, intent: string, expectation: string) => ({
     thought,
     intent,
@@ -76,7 +78,13 @@ export function competentAction(m: MindState, step: number): Record<string, unkn
       type: "treat_wound",
       ...base("My hand is cut.", "Clean and bind the cut.", "It will stop hurting so much."),
     };
-  if (b.hydration < 60) {
+  if (coat && cold && !coatWorn)
+    return {
+      type: "wear",
+      item: "coat",
+      ...base("The air has a bite.", "Put on the coat.", "I will stay warmer."),
+    };
+  if (b.hydration < 65) {
     if (jarFill > 0)
       return {
         type: "drink",
@@ -95,8 +103,8 @@ export function competentAction(m: MindState, step: number): Record<string, unkn
       ...base("My mouth is dry.", "Go to the water.", "I can drink there."),
     };
   }
-  if (b.satiety < 45) {
-    for (const food of ["dried food", "fruit", "roots", "berries"])
+  if (b.satiety < 55) {
+    for (const food of ["dried food", "fruit", "roots", "berries", "cooked fish", "fish"])
       if (invCount(m.inventory, food) > 0)
         return {
           type: "eat",
@@ -107,12 +115,14 @@ export function competentAction(m: MindState, step: number): Record<string, unkn
             "The empty feeling will ease.",
           ),
         };
-    if (at("forest_edge") || at("clearing"))
+    if (at("forest_edge") || at("clearing")) {
+      const target = (["roots", "berries", "fruit"] as const)[step % 3]!;
       return {
         type: "gather",
-        target: "roots",
-        ...base("I need food.", "Dig for roots.", "I will find something to eat."),
+        target,
+        ...base("I need food.", `Gather ${target}.`, "I will find something to eat."),
       };
+    }
     return {
       type: "move_to",
       station: "forest_edge",
@@ -133,7 +143,7 @@ export function competentAction(m: MindState, step: number): Record<string, unkn
   if (inCabin && (night || b.sleep_pressure > 0.8 || b.stamina < 25))
     return {
       type: "rest",
-      hours: 8,
+      hours: 6,
       ...base("I am worn out.", "Lie down and sleep.", "I will wake restored."),
     };
   if (wood < 4) {

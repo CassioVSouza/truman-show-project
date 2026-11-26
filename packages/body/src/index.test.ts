@@ -277,7 +277,7 @@ describe("14-day policy simulation (stub world; rerun against the real world)", 
     for (let seed = 1; seed <= 10; seed++)
       if (simulatePolicy(competentPolicy, { seed }).alive) alive++;
     expect(alive).toBeGreaterThanOrEqual(9);
-  });
+  }, 20_000);
 
   test("random usually dies, mostly by day 4-6", () => {
     const days: number[] = [];

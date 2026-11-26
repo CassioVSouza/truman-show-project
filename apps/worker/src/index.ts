@@ -96,7 +96,8 @@ export default {
         translateDayCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TRANSLATE_DAY,
         // admin "tick now": fresh SupabaseDb inside runLiveTick so subrequest budget is not shared with the API call
         runTick: () => runLiveTick(env),
-        startResident: () => startResident(db, db.createLease()),
+        startResident: () =>
+          startResident(db, db.createLease(), undefined, governorConfigFromEnv(env).timeScale),
       },
       (m) => console.error(scrub(m)),
     );

@@ -11,6 +11,7 @@ export async function startResident(
   db: Rpc,
   lease: Lease,
   now: () => Date = () => new Date(),
+  timeScale = DEFAULT_GOVERNOR.timeScale,
 ): Promise<StartResult> {
   const holder = `genesis-${crypto.randomUUID()}`;
   if (!(await lease.acquire(holder, now(), DEFAULT_GOVERNOR.leaseTtlMs))) return "busy";
@@ -18,7 +19,7 @@ export async function startResident(
   try {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
     const born = now();
-    const mind = genesis(seed, born.getTime());
+    const mind = genesis(seed, born.getTime(), timeScale);
     mind.physiology = physiologyNow(mind);
     const result = await db.rpc("admin_start_resident", {
       p_holder: holder,
