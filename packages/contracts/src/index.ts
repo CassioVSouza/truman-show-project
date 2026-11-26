@@ -189,6 +189,26 @@ export const BodyState = z.object({
   cause_of_death: z.string().nullable(),
 });
 export type BodyState = z.infer<typeof BodyState>;
+/** Numbers the body engine hands to the organism (hidden; the organism turns them into sensations). */
+export const BodySignals = z.object({
+  health: z.number(),
+  satiety: z.number(),
+  energy_reserve: z.number(),
+  hydration: z.number(),
+  core_temp: z.number(),
+  wetness: z.number(),
+  stamina: z.number(),
+  sleep_pressure: z.number(),
+  pain: z.number(),
+  shiver: z.number(),
+  sweat: z.number(),
+  fever: z.number(),
+  nausea: z.number(),
+  illness: z.number(),
+  asleep: z.boolean(),
+  wounds: z.array(z.object({ type: z.string(), location: z.string(), severity: z.number() })),
+});
+export type BodySignals = z.infer<typeof BodySignals>;
 export const Skills = z.record(z.string(), z.number().min(0).max(100));
 export const InventoryItem = z.object({
   item: z.string(),
@@ -196,6 +216,8 @@ export const InventoryItem = z.object({
   condition: unit.optional(),
   props: z.record(z.string(), z.unknown()).optional(),
 });
+
+export type InventoryItem = z.infer<typeof InventoryItem>;
 
 export const EmotionLabel = z.object({ label: z.string(), weight: unit }); // spectators/Lab only
 export const Temperament = z.object({
@@ -386,3 +408,27 @@ export const ToolResult = z.object({
   untrusted: z.literal(true),
 });
 export type ToolResult = z.infer<typeof ToolResult>;
+
+// ---------- Environment at the Resident's location (world engine -> body engine) ----------
+// Produced by `environmentAt()` in @truman/world. Engine/spectator truth, NEVER in Resident prompts.
+// Temperatures are degrees C. `ambient_temp_c` is the local air (already moderated by shelter);
+// `fire_heat_c` is extra radiant warmth from nearby fire (0 if none). `wetness_rate` is 0..1
+// exposure to rain/snow/mist at this spot. `wind` is the local wind (shelter already applied).
+export const Environment = z.object({
+  t: z.number().int(), // minutes since genesis
+  time_of_day: z.enum(["dawn", "day", "dusk", "night"]),
+  season: z.enum(["spring", "summer", "autumn", "winter"]),
+  weather: z.enum(["clear", "cloudy", "fog", "rain", "snow"]),
+  daylight: unit,
+  ambient_temp_c: z.number(),
+  fire_heat_c: z.number().min(0),
+  fire_adjacent: z.boolean(), // close enough to be burned if careless
+  wind: unit,
+  wetness_rate: unit,
+  shelter: z.enum(["open", "canopy", "cabin"]),
+  shelter_quality: unit,
+  food_near: z.boolean(), // edible gatherable within reach
+  water_clean_near: z.boolean(),
+  water_risky_near: z.boolean(),
+});
+export type Environment = z.infer<typeof Environment>;

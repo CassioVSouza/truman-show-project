@@ -30,6 +30,10 @@ Newest at the bottom. Format: decision, reason, docs affected.
 | 24 | Go-ahead for Phase 0 (foundations). Parts needing accounts/keys wait for the owner to wire secrets. 2026-11-25 | Owner | 06 |
 | 25 | Own Supabase project (ref suadfgpoprtormoomqyw; base URL non-secret). The first URL given belonged to another project (ReplayEdition) and is never used. Rule 6 reading: `log_entries` and `events` strictly append-only; `decisions`, `memories` etc. stay updatable (outcomes filled later), every change still logged. Default applied 2026-11-25 because the owner did not object | Owner / liaison default | 04, 12 |
 | 26 | Go-ahead to deploy the Phase 0 Worker (empty tick, no LLM/search calls) to the owner's Cloudflare account and measure real CPU/subrequests. 2026-11-25 | Owner | 02, 05, 06 |
+| 27 | Go-ahead for Phase 1A (Living body: world engine, body engine, organism v1, sensation templating, survival actions, 14-day policy simulation; no web, no LLM, FakeProvider only). Phase 1B still needs its own go-ahead. 2026-11-25 | Owner ("start phase 1A") | 06, 10 |
+| 28 | Phase 1A defaults kept for now, revisit after the 14-day simulation: starter kit is carried in the inventory (no pick-up action; the 10-log woodpile stays in the cabin); the world edge is described as "a wall of thick, tangled thorn". 2026-11-25 | Owner ("default for now") | 10 |
+| 29 | Liaison defaults after QA of Phase 1A (2026-11-25, owner may object): (a) starting hydration is 65 (not 85) so an idle Resident dies of thirst near day 2; this is config tuning, not story. (b) Perception text may state plain distances in metres ("12 m"); this is world geometry, not hidden state. No other digits allowed in Resident text. | Liaison default | 10, 08 |
+| 30 | Phase 1A accepted: qa-guardian second pass 7/7 PASS (2026-11-26). Owner approves: (a) commit Phase 1A, (b) fix line-ending Prettier warnings ($0, ops-budget), (c) go-ahead for Phase 1B (mind, web, public; items 3-10 of doc 06). Owner declined an interim visual test page; the real viewer comes in 1B. 2026-11-26 | Owner ("do all 3") | 06 |
 
 ## Not yet decided / pending
 - Account keys wiring (via secrets, never chat).

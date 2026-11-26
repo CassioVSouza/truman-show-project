@@ -228,7 +228,14 @@ importers:
         specifier: ^4.0.0
         version: 4.166.0(@cloudflare/workers-types@4.20260702.1)(@types/node@18.19.130)(vitest@4.1.12(vite@8.3.8(esbuild@0.28.2)))
 
-  packages/body: {}
+  packages/body:
+    devDependencies:
+      '@truman/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@truman/world':
+        specifier: workspace:*
+        version: link:../world
 
   packages/contracts:
     dependencies:
@@ -236,11 +243,19 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
-  packages/organism: {}
+  packages/organism:
+    dependencies:
+      '@truman/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/shared: {}
 
-  packages/world: {}
+  packages/world:
+    dependencies:
+      '@truman/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
 packages:
 
