@@ -256,10 +256,11 @@ export const LogKind = z.enum([
   "error",
   "system",
   "translation",
+  "tick",
 ]);
 export const LogEntry = z.object({
   id: z.number().int(),
-  ts: z.string().datetime(),
+  ts: z.string().datetime({ offset: true }), // Postgres renders +00:00
   tick_id: z.number().int().nullable(),
   kind: LogKind,
   category: z.enum(["life", "lab"]),
@@ -374,8 +375,62 @@ export const SearchRequest = z.object({
   limit: z.number().int().max(100).default(30),
 });
 export const SearchResponse = z.object({
-  results: z.array(LogEntry.extend({ rank: z.number() })),
+  results: z.array(LogEntry.extend({ rank: z.number(), text_en: z.string().optional() })),
+  /** Keyset cursor for the next page (pass both back). Null when there is no further page. */
   next_before_id: z.number().int().nullable(),
+  next_before_rank: z.number().nullable().default(null),
+});
+export type SearchResponse = z.infer<typeof SearchResponse>;
+
+// ---------- Read API responses (GET only; Worker validates nothing from spectators beyond query strings) ----------
+export const ContextResponse = z.object({
+  entry: LogEntry,
+  causes: z.array(LogEntry), // root first
+  consequences: z.array(LogEntry.extend({ depth: z.number().int() })), // breadth first
+  body: z
+    .object({
+      id: z.number().int(),
+      ts: z.string(),
+      tick_id: z.number().int().nullable(),
+      organism: z.unknown(),
+      physiology: z.unknown(),
+      emotion_top3: z.unknown(),
+    })
+    .nullable(),
+  trace_refs: z.object({
+    llm_traces: z.array(z.object({ id: z.number().int() }).passthrough()),
+    tool_calls: z.array(z.object({ id: z.number().int() }).passthrough()),
+    decisions: z.array(z.object({ id: z.number().int() }).passthrough()),
+  }),
+});
+export type ContextResponse = z.infer<typeof ContextResponse>;
+
+/** Life/Lab list page: rows newest first; `next_before` is the keyset cursor (null at the end). */
+export const ListResponse = z.object({
+  items: z.array(z.record(z.string(), z.unknown())),
+  next_before: z.number().int().nullable(),
+});
+export type ListResponse = z.infer<typeof ListResponse>;
+export const LogPageResponse = z.object({
+  items: z.array(LogEntry),
+  next_after: z.number().int().nullable(),
+});
+export const StatusResponse = z.object({
+  status: z.string(),
+  phase: z.string().nullable(),
+  day: z.number().int().nullable(),
+  last_tick_at: z.string().nullable(),
+  mode: z.string().nullable(),
+  world_day: z.number().int().nullable(),
+  season: z.string().nullable(),
+});
+export const TranslateResponse = z.object({
+  entity: z.string(),
+  id: z.number().int(),
+  lang: z.literal("pt"),
+  text: z.string(),
+  engine: z.string(),
+  cached: z.boolean(),
 });
 
 // ---------- Providers ----------

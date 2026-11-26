@@ -7,6 +7,20 @@ export interface Env {
   GROQ_API_KEY?: string;
   TAVILY_API_KEY?: string;
   SUPABASE_FETCH_TIMEOUT_MS?: string;
+  /** Non-secret tuning (doc 05 defaults apply when absent). */
+  GEMINI_MODEL?: string;
+  GROQ_MODEL?: string;
+  MAX_LLM_CALLS_DAY?: string;
+  MAX_SEARCH_DAY?: string;
+  MAX_FETCH_DAY?: string;
+  MAX_EARLY_TICKS_DAY?: string;
+  TICK_MINUTES?: string;
+  /** Comma-separated browser origins allowed to read the public API (non-secret), e.g. the Pages URL. */
+  ALLOWED_ORIGINS?: string;
+  /** Max server-side translations per UTC day (default 150). */
+  TRANSLATE_SERVER_DAY?: string;
+  /** Optional Workers AI binding (wrangler [ai]); used for server-side translation when present. */
+  AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
 }
 
 export interface Config {

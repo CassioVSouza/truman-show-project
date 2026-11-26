@@ -41,7 +41,11 @@ See doc 08. `OrganismState` (18 hidden variables), `Physiology` (21 channels), `
 | `/api/journal`, `/api/dreams`, `/api/beliefs`, `/api/memories`, `/api/ideas` (`lang=en|pt`) | life lists | 60 s |
 | `/api/lab/organism?from=&to=` | organism + physiology + emotion label series | 30 s |
 | `/api/lab/appraisals`, `/api/lab/decisions`, `/api/lab/traces`, `/api/lab/tools`, `/api/lab/governor`, `/api/lab/errors` | lab lists | 30 s |
+| `/api/lab/traces/:id` | one full LLM trace | 300 s |
+| `/api/translate?entity=&id=&lang=pt` | server-side translation fallback, cached forever per entity+id+lang (daily cap) | 24 h |
 | `/api/status` | status, day count, mode | 15 s |
+
+Search extras: `sort=relevance|time`, keyset cursor `before_id` (+ `before_rank` for relevance), `lang=pt` searches cached translations. List routes take `before=` (keyset) and `limit<=100`. Hidden entries never appear in any route. Unknown query params are ignored and never part of the cache key.
 
 No public write routes. Lab and life are the same API, separated by `category` and route prefix.
 

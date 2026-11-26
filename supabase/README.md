@@ -1,7 +1,7 @@
 # Supabase: applying the migrations
 
 Migrations live in `supabase/migrations/` and must run in order:
-`0001_schema.sql`, then `0002_security_and_functions.sql`.
+`0001_schema.sql`, `0002_security_and_functions.sql`, `0003_revoke_public_function_exec.sql`, `0004_grant_service_role.sql`, then `0005_read_api.sql` (read API, translation cache, audited admin functions; drops the old `search_log`/`search_translations`). Local test of all migrations: `supabase/tests/run.sh` (needs Docker).
 
 Cloud project: `https://suadfgpoprtormoomqyw.supabase.co` (project ref `suadfgpoprtormoomqyw`).
 

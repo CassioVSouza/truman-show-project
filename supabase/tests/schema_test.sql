@@ -69,9 +69,9 @@ END $$;
 SELECT pg_temp.assert(admin_set_hidden((SELECT min(id) FROM log_entries), true), 'hide ok');
 SELECT pg_temp.assert((SELECT hidden FROM log_entries WHERE id = (SELECT min(id) FROM log_entries)), 'row hidden');
 SELECT pg_temp.assert((SELECT count(*) FROM log_entries) = 3, 'hide never deletes');
-SELECT pg_temp.assert(NOT EXISTS (SELECT 1 FROM search_log('warm light')), 'hidden excluded from search');
+SELECT pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('warm light')), 'hidden excluded from search');
 SELECT admin_set_hidden((SELECT min(id) FROM log_entries), false);
-SELECT pg_temp.assert(EXISTS (SELECT 1 FROM search_log('warm light')), 'unhidden found by search');
+SELECT pg_temp.assert(EXISTS (SELECT 1 FROM api_search('warm light')), 'unhidden found by search');
 DO $$
 DECLARE blocked int := 0;
 BEGIN
@@ -85,7 +85,7 @@ END $$;
 -- 5. Translation search (portuguese)
 INSERT INTO translations (entity, entity_id, lang, text, engine)
 SELECT 'log_entries', id, 'pt', 'uma luz quente na parede', 'test' FROM log_entries WHERE kind='perception';
-SELECT pg_temp.assert(EXISTS (SELECT 1 FROM search_translations('paredes')), 'portuguese stemming finds parede');
+SELECT pg_temp.assert(EXISTS (SELECT 1 FROM api_search('paredes', 'pt')), 'portuguese stemming finds parede');
 
 -- 6. Archive: stub keeps hash + archived_ref, recent rows untouched
 INSERT INTO llm_traces (ts, role, provider, model, system_prompt, response, ok) VALUES
@@ -199,6 +199,124 @@ BEGIN
     END LOOP;
     RESET ROLE;
   END LOOP;
+END $$;
+
+
+-- 12. Read API (0005): search keyset pages, context chain, hidden handling, lists, translation cache, audited admin
+SELECT tick_commit($j$
+{"tick":{"started_at":"2026-02-01T00:00:00Z","mode":"normal","ok":true},
+ "log_entries":[
+  {"ref":"p","kind":"perception","category":"life","text":"zebra grazing near the river"},
+  {"ref":"t","kind":"thought","category":"life","text":"the zebra looks calm","caused_by_ref":"p"},
+  {"ref":"a","kind":"action","category":"life","text":"walk toward the zebra","caused_by_ref":"t"},
+  {"ref":"r","kind":"outcome_review","category":"life","text":"the zebra ran away","caused_by_ref":"a"},
+  {"ref":"x","kind":"llm_trace","category":"lab","text":"zebra prompt trace","caused_by_ref":"t"}],
+ "organism_samples":[{"organism":{"arousal":0.4},"physiology":{"heart_rate":70},"emotion_top3":[]}],
+ "llm_traces":[{"role":"resident","provider":"p","model":"m","response":"zebra","ok":true}],
+ "decisions":[{"action":{"type":"move_to"},"intent":"see closer","expectation":"it stays"}],
+ "kv":{}}
+$j$::jsonb);
+-- search: filters and keyset pagination without skipping or repeating rows
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebra')) = 5, 'search finds all five zebra entries');
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebra', 'en', NULL, 'life')) = 4, 'category filter');
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebra', 'en', ARRAY['thought'])) = 1, 'kind filter');
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebra', 'en', NULL, NULL, now() + interval '1 day')) = 0, 'date filter');
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebr', 'en')) >= 0, 'fuzzy partial match does not error');
+DO $$
+DECLARE seen bigint[]; page record; last_id bigint; last_rank double precision; n int; s text;
+BEGIN
+  FOREACH s IN ARRAY ARRAY['time', 'relevance'] LOOP
+    seen := '{}'; last_id := NULL; last_rank := NULL;
+    LOOP
+      n := 0;
+      FOR page IN SELECT * FROM api_search('zebra', 'en', NULL, NULL, NULL, NULL, 2, last_id, last_rank, s) LOOP
+        PERFORM pg_temp.assert(NOT page.id = ANY(seen), 'no repeated row in ' || s || ' paging');
+        seen := seen || page.id; last_id := page.id; last_rank := page.rank; n := n + 1;
+      END LOOP;
+      EXIT WHEN n < 2;
+    END LOOP;
+    PERFORM pg_temp.assert(cardinality(seen) = 5, s || ' paging visits all 5 rows, got ' || cardinality(seen));
+  END LOOP;
+END $$;
+-- context: causes root-first, consequences with depth, body state, trace refs; hidden cuts the chain
+DO $$
+DECLARE tid bigint := (SELECT id FROM log_entries WHERE kind = 'thought' AND text = 'the zebra looks calm'); aid bigint; c jsonb;
+BEGIN
+  c := api_context(tid);
+  PERFORM pg_temp.assert(c->'entry'->>'id' = tid::text, 'context entry');
+  PERFORM pg_temp.assert(jsonb_array_length(c->'causes') = 1 AND c->'causes'->0->>'kind' = 'perception', 'context cause');
+  PERFORM pg_temp.assert(jsonb_array_length(c->'consequences') = 3, 'context consequences (action, trace, review)');
+  PERFORM pg_temp.assert((c->'consequences'->0->>'depth')::int = 1 AND (c->'consequences'->2->>'depth')::int = 2, 'consequence depth ordering');
+  PERFORM pg_temp.assert(c->'body'->'physiology'->>'heart_rate' = '70', 'body state at the tick');
+  PERFORM pg_temp.assert(jsonb_array_length(c->'trace_refs'->'llm_traces') = 1 AND jsonb_array_length(c->'trace_refs'->'decisions') = 1, 'trace refs');
+  PERFORM pg_temp.assert(api_context(-1) IS NULL, 'unknown entry has no context');
+  aid := (SELECT id FROM log_entries WHERE kind = 'action' AND text = 'walk toward the zebra');
+  PERFORM pg_temp.assert(admin_hide(aid, true), 'admin_hide ok');
+  PERFORM pg_temp.assert(api_context(aid) IS NULL, 'hidden entry has no context');
+  c := api_context(tid);
+  PERFORM pg_temp.assert(jsonb_array_length(c->'consequences') = 1, 'hidden descendant cuts its subtree');
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('walk toward')), 'hidden not searchable');
+  PERFORM pg_temp.assert(EXISTS (SELECT 1 FROM log_entries WHERE kind = 'system' AND data->>'admin' = 'hide'), 'hide is audit-logged');
+  PERFORM pg_temp.assert(EXISTS (SELECT 1 FROM log_entries WHERE id = aid AND hidden), 'hidden row still stored');
+  PERFORM pg_temp.assert(jsonb_array_length(admin_export(0, 1000)) = (SELECT count(*) FROM log_entries), 'export includes hidden rows');
+  PERFORM admin_hide(aid, false);
+END $$;
+-- lists, log pages, status, governor
+SELECT pg_temp.assert(api_list('decisions') @> '[{"intent":"see closer"}]', 'decisions list');
+SELECT pg_temp.assert(api_list('traces')->0 ? 'response_preview' AND NOT (api_list('traces')->0 ? 'system_prompt'), 'traces list has preview only');
+SELECT pg_temp.assert(jsonb_array_length(api_list('organism')) = 1, 'organism list');
+SELECT pg_temp.assert(jsonb_array_length(api_log('perception')) >= 1, 'log page by kind');
+DO $$
+BEGIN
+  BEGIN PERFORM api_list('users'); PERFORM pg_temp.assert(false, 'unknown list accepted'); EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+END $$;
+SELECT pg_temp.assert(api_status() ? 'status' AND api_status() ? 'day', 'status shape');
+SELECT pg_temp.assert(api_governor() ? 'db_size_bytes' AND api_governor() ? 'usage', 'governor shape');
+-- translation cache: whitelist, first write wins, hidden entries not translatable, daily cap
+DO $$
+DECLARE pid bigint := (SELECT id FROM log_entries WHERE kind = 'perception' AND text = 'zebra grazing near the river');
+BEGIN
+  PERFORM pg_temp.assert(translation_source('log_entries', pid) = 'zebra grazing near the river', 'translation source');
+  PERFORM pg_temp.assert(translation_source('kv', 1) IS NULL, 'entity whitelist');
+  PERFORM pg_temp.assert(translation_lookup('log_entries', pid, 'pt')->>'translated' IS NULL AND translation_lookup('log_entries', pid, 'pt')->>'source' IS NOT NULL, 'lookup before cache');
+  PERFORM pg_temp.assert(translation_put('log_entries', pid, 'pt', 'zebra pastando perto do rio', 'test'), 'translation stored');
+  PERFORM pg_temp.assert(NOT translation_put('log_entries', pid, 'pt', 'outra coisa', 'test'), 'cache forever, first write wins');
+  PERFORM pg_temp.assert((SELECT text FROM translations WHERE entity = 'log_entries' AND entity_id = pid AND lang = 'pt') = 'zebra pastando perto do rio', 'translation unchanged');
+  PERFORM pg_temp.assert(translation_lookup('log_entries', pid, 'pt')->>'engine' = 'test', 'lookup after cache');
+  PERFORM pg_temp.assert(NOT translation_put('log_entries', pid, 'fr', 'x', 'test'), 'only supported languages');
+  PERFORM pg_temp.assert(NOT translation_put('log_entries', -5, 'pt', 'x', 'test'), 'missing entity not stored');
+  PERFORM pg_temp.assert(EXISTS (SELECT 1 FROM api_search('pastando', 'pt')), 'pt search finds the cached translation');
+  PERFORM pg_temp.assert((SELECT text_en FROM api_search('pastando', 'pt') LIMIT 1) = 'zebra grazing near the river', 'pt result keeps the english original');
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('pastando', 'en')), 'en search does not read translations');
+  PERFORM pg_temp.assert(usage_try('t_cap', 2) AND usage_try('t_cap', 2) AND NOT usage_try('t_cap', 2), 'daily cap enforced');
+  PERFORM admin_hide(pid, true);
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('pastando', 'pt')), 'hidden entry not found via pt either');
+  PERFORM pg_temp.assert(translation_source('log_entries', pid) IS NULL, 'hidden entry not translatable');
+  PERFORM admin_hide(pid, false);
+END $$;
+-- audited flags: only the two gate keys
+SELECT admin_set_flag('pause', 'paused', true);
+SELECT pg_temp.assert((SELECT value = 'true'::jsonb FROM kv WHERE key = 'paused') AND api_status()->>'status' = 'dead', 'pause flag set; a dead resident reports dead (death wins)');
+SELECT admin_set_flag('resume', 'paused', false);
+DO $$
+BEGIN
+  BEGIN PERFORM admin_set_flag('x', 'phase', true); PERFORM pg_temp.assert(false, 'arbitrary kv key accepted'); EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+END $$;
+-- everything must also work AS service_role, and be closed to anon
+SET ROLE service_role;
+SELECT pg_temp.assert((SELECT count(*) FROM api_search('zebra')) >= 4, 'service_role search');
+SELECT pg_temp.assert(api_context((SELECT id FROM log_entries WHERE kind = 'thought' AND text = 'the zebra looks calm')) IS NOT NULL, 'service_role context');
+SELECT pg_temp.assert(admin_hide((SELECT id FROM log_entries WHERE kind = 'perception' AND text = 'zebra grazing near the river'), false), 'service_role admin_hide');
+SELECT pg_temp.assert(api_list('journal') IS NOT NULL AND api_status() IS NOT NULL AND api_governor() IS NOT NULL, 'service_role lists');
+RESET ROLE;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
+    SET LOCAL ROLE anon;
+    BEGIN PERFORM api_search('zebra'); PERFORM pg_temp.assert(false, 'anon ran api_search'); EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    BEGIN PERFORM admin_hide(1, true); PERFORM pg_temp.assert(false, 'anon ran admin_hide'); EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    RESET ROLE;
+  END IF;
 END $$;
 
 SELECT 'ALL TESTS PASSED' AS result;

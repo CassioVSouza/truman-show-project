@@ -53,7 +53,8 @@ export class SupabaseDb implements Db {
       const snippet = redactValue(await res.text().catch(() => ""), key).slice(0, 200);
       throw new Error(`supabase ${path.split("?")[0]} failed: ${res.status} ${snippet}`);
     }
-    return res.json();
+    const body = await res.text();
+    return body ? JSON.parse(body) : null; // void RPCs answer 204 with an empty body
   }
 
   async loadState(): Promise<LoadedState> {
@@ -65,6 +66,15 @@ export class SupabaseDb implements Db {
     const kvMap: Record<string, unknown> = {};
     for (const r of kv as Array<{ key: string; value: unknown }>) kvMap[r.key] = r.value;
     return { resident: rows[0] ?? null, kv: kvMap };
+  }
+
+  /**
+   * Generic PostgREST RPC for the read API and admin routes (one subrequest per call). Only the Worker may call this;
+   * the SQL functions are granted to service_role alone. `name` is restricted to a safe identifier.
+   */
+  async rpc(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(name)) throw new Error("invalid rpc name");
+    return this.call(`/rest/v1/rpc/${name}`, { method: "POST", body: JSON.stringify(args) });
   }
 
   async commitTick(payload: TickPayload): Promise<CommitResult> {

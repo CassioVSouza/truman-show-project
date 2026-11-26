@@ -208,12 +208,21 @@ importers:
 
   apps/worker:
     dependencies:
+      '@truman/body':
+        specifier: workspace:*
+        version: link:../../packages/body
       '@truman/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@truman/organism':
+        specifier: workspace:*
+        version: link:../../packages/organism
       '@truman/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@truman/world':
+        specifier: workspace:*
+        version: link:../../packages/world
       zod:
         specifier: ^4.6.7
         version: 4.6.7

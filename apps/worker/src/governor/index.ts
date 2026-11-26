@@ -1,4 +1,4 @@
-// Phase 0: only the kill switch / pause gate. Budgets, modes and lease arrive with the governor task.
+// Kill switch / pause gate (Phase 0) plus modes, budgets and lease (modes.ts).
 export type GateDecision = { run: true } | { run: false; reason: string };
 
 /**
@@ -27,3 +27,5 @@ export function gate(
   if (resident["status"] === "dead") return { run: false, reason: "dead" }; // death is permanent
   return { run: true };
 }
+
+export * from "./modes";

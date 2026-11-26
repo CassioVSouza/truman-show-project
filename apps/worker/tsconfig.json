@@ -7,5 +7,18 @@
     "lib": ["ES2022"]
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/contracts" }]
+  "references": [
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/world"
+    },
+    {
+      "path": "../../packages/body"
+    },
+    {
+      "path": "../../packages/organism"
+    }
+  ]
 }

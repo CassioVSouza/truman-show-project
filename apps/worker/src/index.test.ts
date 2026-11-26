@@ -13,7 +13,9 @@ const cfg = {
 };
 
 test("worker scaffold responds", async () => {
-  expect(await (await worker.fetch()).text()).toBe("ok");
+  expect(await (await worker.fetch(new Request("https://w.test/"), cfg as never)).text()).toBe(
+    "ok",
+  );
 });
 
 describe("env", () => {

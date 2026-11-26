@@ -63,3 +63,10 @@ async function runTickInner(db: Db, now: () => Date, started: Date): Promise<Tic
   const res = await db.commitTick(payload);
   return { ran: g.run, reason: g.run ? "empty" : g.reason, tick_id: res.tick_id };
 }
+
+export { runMindTick, describeChoice } from "./pipeline";
+export type { MindTickDeps, MindTickResult } from "./pipeline";
+export { MemoryRows } from "./memory-log";
+export type { TickLog, TickRows, EventInput } from "./ports";
+export { genesis, readMind } from "./state";
+export type { MindState } from "./state";
