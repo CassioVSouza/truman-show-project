@@ -82,6 +82,7 @@ Worker `truman-worker`, Free plan, cron `*/10 * * * *`, version d573ce03 (previe
 - Earlier tick (00:10 UTC, version aaf5e74e): CPU 3 ms, wall 893 ms, 1 subrequest; failed with Supabase 403 (service_role lacked GRANT). Superseded by schema 0004.
 - Successful tick (00:30 UTC, version d573ce03): CPU **2 ms** (Free limit 10 ms), wall **1016 ms**, outcome ok. `ticks` id 2, mode `skipped`, ok true, error `no_resident` (resident table is empty; the tick commits a logged skipped row). Tick id 1 (00:20 UTC) is the same.
 - Phase 0 close-out tick (00:40 UTC, version 05b36757, first with the per-tick `log_entries` write): CPU **1 ms**, wall **1258 ms**, outcome ok. `ticks` id 3 (`skipped`, ok true, `no_resident`) and `log_entries` id 1 (kind `tick`, tick_id 3) were committed together. Confirmed on project ref suadfgpoprtormoomqyw.
+- Redeploy with zod 4 + contracts fix (main 8b97de7, version 1fb3a16f, 2026-11-26 01:20 UTC cron): CPU **2 ms**, wall **1261 ms**, outcome ok, no exceptions. `ticks` id 7 (`skipped`, ok true, `no_resident`) and `log_entries` id 5 (kind `tick`, tick_id 7) committed. Confirmed on project ref suadfgpoprtormoomqyw.
 - Subrequests: **3** by code inspection (`loadState` = GET resident + GET kv in parallel, `commitTick` = 1 RPC `tick_commit`); the tail JSON does not report a subrequest count. Limit 50.
 - Caveat: this is the empty/skipped path (no LLM, search or fetch calls). A tick with a living resident adds provider calls and larger JSON, so re-measure once a resident exists.
 
