@@ -22,6 +22,7 @@ class ViewerApp {
   private section: Section = "life";
   private lifeTab: LifeTab = "live";
   private labTab: LabTab = "organism";
+  private popupOpen = false;
 
   private snapshot: Snapshot | null = null;
   private events: Event[] = [];
@@ -58,14 +59,39 @@ class ViewerApp {
   private nowDoingOverlayEl!: HTMLElement;
   private hudSidebarEl!: HTMLElement;
   private timelineBarEl!: HTMLElement;
-  private contentPaneEl!: HTMLElement;
+  private tabPopupBackdropEl!: HTMLElement;
+  private tabPopupPanelEl!: HTMLElement;
+  private tabPopupHeaderEl!: HTMLElement;
+  private tabPopupBodyEl!: HTMLElement;
   private contextModalEl!: HTMLElement;
 
   constructor(root: HTMLElement) {
     this.root = root;
     this.mountShell();
+    this.bindGlobalKeys();
     void this.refreshFeed();
     this.startPlaybackClock();
+  }
+
+  private bindGlobalKeys(): void {
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!this.contextModalEl.hidden) {
+        this.contextModalEl.hidden = true;
+        clear(this.contextModalEl);
+        return;
+      }
+      if (this.popupOpen) {
+        this.closePopup();
+        return;
+      }
+      if (!this.searchDrawerEl.hidden) {
+        this.searchQuery = "";
+        this.searchResponse = null;
+        this.searchDrawerEl.hidden = true;
+        this.renderChrome();
+      }
+    });
   }
 
   private mountShell(): void {
@@ -100,16 +126,31 @@ class ViewerApp {
     this.hudSidebarEl = el("aside", { class: "hud-sidebar" });
     this.liveGridEl = el("div", { class: "live-grid" }, stageWrap, this.hudSidebarEl);
 
-    this.contentPaneEl = el("section", { class: "content-pane" });
-    this.contentPaneEl.hidden = true;
+    this.tabPopupHeaderEl = el("div", { class: "tab-popup-header" });
+    this.tabPopupBodyEl = el("div", { class: "tab-popup-body" });
+    this.tabPopupPanelEl = el(
+      "section",
+      { class: "tab-popup-panel", role: "dialog" },
+      this.tabPopupHeaderEl,
+      this.tabPopupBodyEl,
+    );
+    this.tabPopupPanelEl.setAttribute("aria-labelledby", "tab-popup-title");
+    this.tabPopupBackdropEl = el("div", { class: "tab-popup-backdrop" }, this.tabPopupPanelEl);
+    this.tabPopupBackdropEl.hidden = true;
+    this.tabPopupBackdropEl.addEventListener("click", (e) => {
+      if (e.target === this.tabPopupBackdropEl) {
+        this.closePopup();
+      }
+    });
 
     this.timelineBarEl = el("footer", { class: "timeline-bar" });
-    this.mainAreaEl = el("main", { class: "main-area" }, this.liveGridEl, this.contentPaneEl);
+    this.mainAreaEl = el("main", { class: "main-area" }, this.liveGridEl);
     this.contextModalEl = el("div", { class: "modal-backdrop" });
     this.contextModalEl.hidden = true;
     this.contextModalEl.addEventListener("click", (e) => {
       if (e.target === this.contextModalEl) {
         this.contextModalEl.hidden = true;
+        clear(this.contextModalEl);
       }
     });
 
@@ -119,6 +160,7 @@ class ViewerApp {
       this.searchDrawerEl,
       this.mainAreaEl,
       this.timelineBarEl,
+      this.tabPopupBackdropEl,
       this.contextModalEl,
     );
 
@@ -166,7 +208,7 @@ class ViewerApp {
         this.renderFrame();
       }
 
-      if (!this.api.snapshotBase && !(this.section === "life" && this.lifeTab === "live")) {
+      if (!this.api.snapshotBase && this.popupOpen) {
         void this.renderActiveContentTab();
       }
     } finally {
@@ -294,12 +336,16 @@ class ViewerApp {
         ["questions", t(this.lang, "navQuestionsLessons")],
       ];
       for (const [id, label] of lifeTabs) {
+        const isActive =
+          id === "live"
+            ? !this.popupOpen && this.section === "life"
+            : this.popupOpen && this.section === "life" && this.lifeTab === id;
         tabsEl.appendChild(
           el(
             "button",
             {
               type: "button",
-              class: `tab-btn${this.lifeTab === id ? " is-active" : ""}`,
+              class: `tab-btn${isActive ? " is-active" : ""}`,
               onClick: () => this.selectLifeTab(id),
             },
             label,
@@ -315,12 +361,13 @@ class ViewerApp {
         ["rawlog", t(this.lang, "navLabRawLog")],
       ];
       for (const [id, label] of labTabs) {
+        const isActive = this.popupOpen && this.section === "lab" && this.labTab === id;
         tabsEl.appendChild(
           el(
             "button",
             {
               type: "button",
-              class: `tab-btn${this.labTab === id ? " is-active" : ""}`,
+              class: `tab-btn${isActive ? " is-active" : ""}`,
               onClick: () => this.selectLabTab(id),
             },
             label,
@@ -540,46 +587,189 @@ class ViewerApp {
 
   private switchSection(sec: Section): void {
     this.section = sec;
+    if (sec === "life") {
+      this.lifeTab = "live";
+      this.popupOpen = false;
+    } else {
+      this.popupOpen = true;
+    }
     this.updateViewVisibility();
     this.renderChrome();
-    if (!(this.section === "life" && this.lifeTab === "live")) {
+    if (this.popupOpen) {
       void this.renderActiveContentTab();
     }
   }
 
   private selectLifeTab(tab: LifeTab): void {
+    if (tab === "live") {
+      this.section = "life";
+      this.lifeTab = "live";
+      this.popupOpen = false;
+      this.updateViewVisibility();
+      this.renderChrome();
+      return;
+    }
+    if (this.popupOpen && this.section === "life" && this.lifeTab === tab) {
+      this.closePopup();
+      return;
+    }
     this.section = "life";
     this.lifeTab = tab;
-    this.updateViewVisibility();
-    this.renderChrome();
-    if (tab !== "live") {
-      void this.renderActiveContentTab();
-    }
-  }
-
-  private selectLabTab(tab: LabTab): void {
-    this.section = "lab";
-    this.labTab = tab;
+    this.popupOpen = true;
     this.updateViewVisibility();
     this.renderChrome();
     void this.renderActiveContentTab();
   }
 
+  private selectLabTab(tab: LabTab): void {
+    if (this.popupOpen && this.section === "lab" && this.labTab === tab) {
+      this.closePopup();
+      return;
+    }
+    this.section = "lab";
+    this.labTab = tab;
+    this.popupOpen = true;
+    this.updateViewVisibility();
+    this.renderChrome();
+    void this.renderActiveContentTab();
+  }
+
+  private closePopup(): void {
+    this.popupOpen = false;
+    if (this.section === "life") {
+      this.lifeTab = "live";
+    }
+    this.updateViewVisibility();
+    this.renderChrome();
+  }
+
   private updateViewVisibility(): void {
-    const showLive = this.section === "life" && this.lifeTab === "live";
-    this.liveGridEl.hidden = !showLive;
-    this.contentPaneEl.hidden = showLive;
+    const openingPopup = this.popupOpen && this.tabPopupBackdropEl.hidden;
+    this.liveGridEl.hidden = false;
+    this.tabPopupBackdropEl.hidden = !this.popupOpen;
+    this.tabPopupPanelEl.className = `tab-popup-panel ${this.section === "lab" ? "is-lab" : "is-life"}`;
+    document.body.classList.toggle("has-overlay", this.popupOpen);
+    if (this.popupOpen) {
+      this.renderPopupHeader();
+      if (openingPopup) {
+        this.tabPopupHeaderEl.querySelector<HTMLButtonElement>(".tab-popup-close")?.focus();
+      }
+    }
+  }
+
+  private getActivePopupTitle(): string {
+    if (this.section === "life") {
+      const titles: Record<Exclude<LifeTab, "live">, string> = {
+        thoughts: t(this.lang, "navThoughts"),
+        journal: t(this.lang, "navJournal"),
+        actions: t(this.lang, "navActions"),
+        memories: t(this.lang, "navMemories"),
+        questions: t(this.lang, "navQuestionsLessons"),
+      };
+      return this.lifeTab === "live" ? t(this.lang, "navLive") : titles[this.lifeTab];
+    }
+    const labTitles: Record<LabTab, string> = {
+      organism: t(this.lang, "navLabOrganism"),
+      appraisals: t(this.lang, "navLabAppraisals"),
+      traces: t(this.lang, "navLabTraces"),
+      governor: t(this.lang, "navLabGovernor"),
+      rawlog: t(this.lang, "navLabRawLog"),
+    };
+    return labTitles[this.labTab];
+  }
+
+  private renderPopupHeader(): void {
+    clear(this.tabPopupHeaderEl);
+    const isLab = this.section === "lab";
+    const sectionLabel = isLab ? t(this.lang, "sectionLab") : t(this.lang, "sectionLife");
+
+    const titleRow = el(
+      "div",
+      { class: "tab-popup-title-row" },
+      el(
+        "div",
+        { class: "tab-popup-title-group" },
+        el("span", { class: `tag ${isLab ? "tag-lab" : "tag-life"}` }, sectionLabel),
+        el("h2", { class: "tab-popup-title", id: "tab-popup-title" }, this.getActivePopupTitle()),
+      ),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "tab-popup-close",
+          "aria-label": t(this.lang, "close"),
+          title: t(this.lang, "close"),
+          onClick: () => this.closePopup(),
+        },
+        "×",
+      ),
+    );
+
+    const switcher = el("div", { class: "tab-popup-switcher" });
+    if (isLab) {
+      const labTabs: Array<[LabTab, string]> = [
+        ["organism", t(this.lang, "navLabOrganism")],
+        ["appraisals", t(this.lang, "navLabAppraisals")],
+        ["traces", t(this.lang, "navLabTraces")],
+        ["governor", t(this.lang, "navLabGovernor")],
+        ["rawlog", t(this.lang, "navLabRawLog")],
+      ];
+      for (const [id, label] of labTabs) {
+        switcher.appendChild(
+          el(
+            "button",
+            {
+              type: "button",
+              class: `popup-tab-pill${this.labTab === id ? " is-active" : ""}`,
+              onClick: () => {
+                if (this.labTab !== id) this.selectLabTab(id);
+              },
+            },
+            label,
+          ),
+        );
+      }
+    } else {
+      const lifeTabs: Array<[Exclude<LifeTab, "live">, string]> = [
+        ["thoughts", t(this.lang, "navThoughts")],
+        ["journal", t(this.lang, "navJournal")],
+        ["actions", t(this.lang, "navActions")],
+        ["memories", t(this.lang, "navMemories")],
+        ["questions", t(this.lang, "navQuestionsLessons")],
+      ];
+      for (const [id, label] of lifeTabs) {
+        switcher.appendChild(
+          el(
+            "button",
+            {
+              type: "button",
+              class: `popup-tab-pill${this.lifeTab === id ? " is-active" : ""}`,
+              onClick: () => {
+                if (this.lifeTab !== id) this.selectLifeTab(id);
+              },
+            },
+            label,
+          ),
+        );
+      }
+    }
+
+    this.tabPopupHeaderEl.append(titleRow, switcher);
   }
 
   private async renderActiveContentTab(): Promise<void> {
+    if (!this.popupOpen) return;
+    const popupBody = el("div", { class: "tab-popup-body" });
+    this.tabPopupBodyEl.replaceWith(popupBody);
+    this.tabPopupBodyEl = popupBody;
     const inspect = (id: number) => {
       void openContextModal(this.contextModalEl, this.api, id, this.lang);
     };
     if (this.section === "life" && this.lifeTab !== "live") {
-      await renderLifeTab(this.contentPaneEl, this.lifeTab, this.api, this.lang, inspect);
+      await renderLifeTab(popupBody, this.lifeTab, this.api, this.lang, inspect);
     } else if (this.section === "lab") {
       await renderLabTab(
-        this.contentPaneEl,
+        popupBody,
         this.labTab,
         this.api,
         this.snapshot,
@@ -594,7 +784,8 @@ class ViewerApp {
     this.lang = lang;
     this.renderChrome();
     this.renderFrame();
-    if (!(this.section === "life" && this.lifeTab === "live")) {
+    if (this.popupOpen) {
+      this.renderPopupHeader();
       void this.renderActiveContentTab();
     }
     if (this.searchQuery) {

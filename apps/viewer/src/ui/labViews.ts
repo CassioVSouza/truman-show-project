@@ -16,6 +16,22 @@ function str(v: unknown): string {
   return "";
 }
 
+function kvRow(label: string, value: string): HTMLElement | null {
+  if (!value.trim()) return null;
+  return el(
+    "div",
+    { class: "entry-kv" },
+    el("span", { class: "entry-kv-label" }, label),
+    el("span", { class: "entry-kv-val" }, value),
+  );
+}
+
+function kvGroup(rows: Array<HTMLElement | null>): HTMLElement | null {
+  const valid = rows.filter((r): r is HTMLElement => r !== null);
+  if (valid.length === 0) return null;
+  return el("div", { class: "entry-kv-list" }, ...valid);
+}
+
 function metricBar(label: string, raw: number, signed = false): HTMLElement {
   const pct = signed
     ? Math.max(0, Math.min(100, ((raw + 1) / 2) * 100))
@@ -60,7 +76,6 @@ export async function renderLabTab(
     const { data } = await api.getList("organism", { lab: true, limit: 10 });
     clear(container);
     container.appendChild(el("div", { class: "lab-banner" }, t(lang, "labDisclaimer")));
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navLabOrganism")));
 
     const latest = data.items[0];
     if (!latest) {
@@ -103,7 +118,6 @@ export async function renderLabTab(
     ]);
     clear(container);
     container.appendChild(el("div", { class: "lab-banner" }, t(lang, "labDisclaimer")));
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navLabAppraisals")));
 
     const grid = el("div", { class: "two-col-grid" });
 
@@ -119,7 +133,7 @@ export async function renderLabTab(
         el(
           "p",
           { class: "entry-sub" },
-          `${str(latestApp["stimulus"])} · prediction error: ${num(latestApp["prediction_error"]).toFixed(2)}`,
+          `${str(latestApp["stimulus"])} · err ${num(latestApp["prediction_error"]).toFixed(2)}`,
         ),
       );
       for (const [k, v] of Object.entries(latestApp["appraisal"] as Record<string, unknown>)) {
@@ -152,12 +166,17 @@ export async function renderLabTab(
     container.appendChild(grid);
 
     // Decisions & prediction error
-    const decSec = el("section", { class: "panel-box" }, el("h3", null, t(lang, "decisionsTitle")));
+    const decList = el("div", { class: "card-list" });
+    const decSec = el(
+      "section",
+      { class: "panel-box" },
+      el("h3", null, `${t(lang, "decisionsTitle")} (${decRes.data.items.length})`),
+    );
     if (decRes.data.items.length === 0) {
       decSec.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
     } else {
       for (const d of decRes.data.items) {
-        decSec.appendChild(
+        decList.appendChild(
           el(
             "article",
             { class: "entry-card" },
@@ -168,27 +187,15 @@ export async function renderLabTab(
               el("span", { class: "tag" }, `err ${num(d["prediction_error"]).toFixed(2)}`),
               el("span", { class: "meta-ts" }, formatDateTime(str(d["ts"]))),
             ),
-            el(
-              "p",
-              { class: "entry-sub" },
-              el("strong", null, `${t(lang, "intentLabel")}: `),
-              str(d["intent"]),
-            ),
-            el(
-              "p",
-              { class: "entry-sub" },
-              el("strong", null, `${t(lang, "expectationLabel")}: `),
-              str(d["expectation"]),
-            ),
-            el(
-              "p",
-              { class: "entry-sub" },
-              el("strong", null, `${t(lang, "outcomeLabel")}: `),
-              str(d["outcome"]),
-            ),
+            kvGroup([
+              kvRow(t(lang, "intentLabel"), str(d["intent"])),
+              kvRow(t(lang, "expectationLabel"), str(d["expectation"])),
+              kvRow(t(lang, "outcomeLabel"), str(d["outcome"])),
+            ]),
           ),
         );
       }
+      decSec.appendChild(decList);
     }
     container.appendChild(decSec);
     return;
@@ -198,7 +205,6 @@ export async function renderLabTab(
     const { data } = await api.getList("traces", { lab: true, limit: 25 });
     clear(container);
     container.appendChild(el("div", { class: "lab-banner" }, t(lang, "labDisclaimer")));
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "tracesTitle")));
 
     if (data.items.length === 0) {
       container.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
@@ -238,15 +244,28 @@ export async function renderLabTab(
                     el(
                       "div",
                       { class: "panel-box" },
-                      el("h3", null, `Trace #${traceId} (${str(payload["provider"])})`),
-                      el("strong", null, t(lang, "tracePrompt")),
+                      el(
+                        "div",
+                        { class: "panel-header" },
+                        el("h3", null, `Trace #${traceId} (${str(payload["provider"])})`),
+                        el(
+                          "button",
+                          {
+                            type: "button",
+                            class: "ghost-btn",
+                            onClick: () => clear(detailBox),
+                          },
+                          t(lang, "close"),
+                        ),
+                      ),
+                      el("strong", { class: "entry-kv-label" }, t(lang, "tracePrompt")),
                       el(
                         "pre",
                         { class: "code-block" },
                         `${str(payload["system"])}\n\n${str(payload["prompt"])}`.trim() ||
                           JSON.stringify(payload, null, 2),
                       ),
-                      el("strong", null, t(lang, "traceResponse")),
+                      el("strong", { class: "entry-kv-label" }, t(lang, "traceResponse")),
                       el("pre", { class: "code-block" }, str(payload["response"]) || "—"),
                     ),
                   );
@@ -258,7 +277,7 @@ export async function renderLabTab(
         ),
       );
     }
-    container.append(list, detailBox);
+    container.append(detailBox, list);
     return;
   }
 
@@ -270,7 +289,6 @@ export async function renderLabTab(
     ]);
     clear(container);
     container.appendChild(el("div", { class: "lab-banner" }, t(lang, "labDisclaimer")));
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "governorTitle")));
 
     const gov = govRes.data;
     const size = (gov["size"] ?? {}) as Record<string, unknown>;
@@ -306,49 +324,58 @@ export async function renderLabTab(
       ),
     );
 
+    const toolsList = el("div", { class: "card-list" });
+    for (const tc of toolsRes.data.items) {
+      const rawInput = tc["input"];
+      const inputSummary =
+        typeof rawInput === "string"
+          ? rawInput
+          : rawInput && typeof rawInput === "object"
+            ? JSON.stringify(rawInput)
+            : str(tc["query"] ?? tc["url"]);
+      const statusVal = tc["status"] ?? tc["status_code"];
+      const bytesVal = tc["bytes"];
+      const decision =
+        tc["ok"] !== undefined
+          ? tc["ok"]
+            ? "ok"
+            : "failed"
+          : str(tc["ssrf_decision"] ?? "allowed");
+      const errText = str(tc["error"]);
+      const parts = [
+        inputSummary,
+        statusVal !== undefined ? `HTTP ${num(statusVal)}` : "",
+        bytesVal !== undefined ? `${num(bytesVal)} B` : "",
+        decision,
+        errText ? `error: ${errText}` : "",
+      ].filter(Boolean);
+      toolsList.appendChild(
+        el(
+          "article",
+          { class: "entry-card" },
+          el(
+            "div",
+            { class: "entry-meta" },
+            el("span", { class: "tag tag-lab" }, str(tc["tool"] ?? "tool")),
+            el("span", { class: "meta-ts" }, parts.join(" · ")),
+          ),
+        ),
+      );
+    }
+
     const toolsSec = el(
       "section",
       { class: "panel-box" },
-      el("h3", null, t(lang, "toolCallsTitle")),
-      ...(toolsRes.data.items.length > 0
-        ? toolsRes.data.items.map((tc) => {
-            const rawInput = tc["input"];
-            const inputSummary =
-              typeof rawInput === "string"
-                ? rawInput
-                : rawInput && typeof rawInput === "object"
-                  ? JSON.stringify(rawInput)
-                  : str(tc["query"] ?? tc["url"]);
-            const statusVal = tc["status"] ?? tc["status_code"];
-            const bytesVal = tc["bytes"];
-            const decision =
-              tc["ok"] !== undefined
-                ? tc["ok"]
-                  ? "ok"
-                  : "failed"
-                : str(tc["ssrf_decision"] ?? "allowed");
-            const errText = str(tc["error"]);
-            const parts = [
-              inputSummary,
-              statusVal !== undefined ? `HTTP ${num(statusVal)}` : "",
-              bytesVal !== undefined ? `${num(bytesVal)} B` : "",
-              decision,
-              errText ? `error: ${errText}` : "",
-            ].filter(Boolean);
-            return el(
-              "article",
-              { class: "entry-card" },
-              el("span", { class: "tag tag-lab" }, str(tc["tool"] ?? "tool")),
-              el("p", { class: "entry-sub" }, parts.join(" · ")),
-            );
-          })
-        : [el("p", { class: "muted-note" }, t(lang, "emptyState"))]),
+      el("h3", null, `${t(lang, "toolCallsTitle")} (${toolsRes.data.items.length})`),
+      toolsRes.data.items.length > 0
+        ? toolsList
+        : el("p", { class: "muted-note" }, t(lang, "emptyState")),
     );
 
     const errSec = el(
       "section",
       { class: "panel-box" },
-      el("h3", null, t(lang, "errorsTitle")),
+      el("h3", null, `${t(lang, "errorsTitle")} (${errRes.data.items.length})`),
       ...(errRes.data.items.length > 0
         ? errRes.data.items.map((er) =>
             el("pre", { class: "code-block" }, JSON.stringify(er, null, 2)),
@@ -368,7 +395,11 @@ export async function renderLabTab(
   const exportBar = el(
     "div",
     { class: "panel-header" },
-    el("h2", { class: "view-title" }, t(lang, "navLabRawLog")),
+    el(
+      "h3",
+      { class: "section-sub", style: "margin:0" },
+      `${t(lang, "rawLogTitle")} (${logRes.items.length})`,
+    ),
     el(
       "div",
       { class: "panel-actions" },
@@ -428,16 +459,11 @@ export async function renderLabTab(
   }
 
   const eventsBox = el(
-    "section",
-    { class: "panel-box" },
-    el("h3", null, `${t(lang, "rawEventsTitle")} (${events.length})`),
+    "details",
+    { class: "panel-box panel-details" },
+    el("summary", { class: "panel-summary" }, `${t(lang, "rawEventsTitle")} (${events.length})`),
     el("pre", { class: "code-block" }, JSON.stringify(events, null, 2)),
   );
 
-  container.append(
-    exportBar,
-    el("h3", { class: "section-sub" }, t(lang, "rawLogTitle")),
-    logList,
-    eventsBox,
-  );
+  container.append(exportBar, logList, eventsBox);
 }

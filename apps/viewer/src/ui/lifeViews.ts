@@ -10,6 +10,22 @@ function str(v: unknown): string {
   return "";
 }
 
+function kvRow(label: string, value: string): HTMLElement | null {
+  if (!value.trim()) return null;
+  return el(
+    "div",
+    { class: "entry-kv" },
+    el("span", { class: "entry-kv-label" }, label),
+    el("span", { class: "entry-kv-val" }, value),
+  );
+}
+
+function kvGroup(rows: Array<HTMLElement | null>): HTMLElement | null {
+  const valid = rows.filter((r): r is HTMLElement => r !== null);
+  if (valid.length === 0) return null;
+  return el("div", { class: "entry-kv-list" }, ...valid);
+}
+
 function attachTranslation(
   textEl: HTMLElement,
   badgeEl: HTMLElement,
@@ -45,7 +61,6 @@ export async function renderLifeTab(
   if (tab === "thoughts") {
     const res = await api.getLog({ kind: "thought", category: "life", limit: 40 });
     clear(container);
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navThoughts")));
     if (res.items.length === 0) {
       container.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
       return;
@@ -57,8 +72,10 @@ export async function renderLifeTab(
       attachTranslation(textP, langTag, item.text, lang, null, () =>
         api.translateEntity("log_entries", item.id),
       );
-      const intent = str(item.data["intent"]);
-      const expectation = str(item.data["expectation"]);
+      const details = kvGroup([
+        kvRow(t(lang, "intentLabel"), str(item.data["intent"])),
+        kvRow(t(lang, "expectationLabel"), str(item.data["expectation"])),
+      ]);
       list.appendChild(
         el(
           "article",
@@ -75,22 +92,7 @@ export async function renderLifeTab(
             ),
           ),
           textP,
-          intent
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "intentLabel")}: `),
-                intent,
-              )
-            : null,
-          expectation
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "expectationLabel")}: `),
-                expectation,
-              )
-            : null,
+          details,
         ),
       );
     }
@@ -101,7 +103,6 @@ export async function renderLifeTab(
   if (tab === "journal") {
     const { data } = await api.getList("journal", { lang: toApiLang(lang), limit: 30 });
     clear(container);
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navJournal")));
     if (data.items.length === 0) {
       container.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
       return;
@@ -152,7 +153,6 @@ export async function renderLifeTab(
       api.getLog({ kind: "outcome_review", category: "life", limit: 40 }),
     ]);
     clear(container);
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navActions")));
     const reviewByCause = new Map(
       reviewsRes.items.filter((r) => r.caused_by !== null).map((r) => [r.caused_by!, r]),
     );
@@ -169,6 +169,12 @@ export async function renderLifeTab(
       const expectation = str(actionObj?.["expectation"] ?? item.data["expectation"]);
       const outcome = str(item.data["outcome"]) || rev?.text || "";
       const feeling = rev ? str(rev.data["feeling_description"]) : "";
+      const details = kvGroup([
+        kvRow(t(lang, "intentLabel"), intent),
+        kvRow(t(lang, "expectationLabel"), expectation),
+        kvRow(t(lang, "outcomeLabel"), outcome),
+        kvRow(t(lang, "feelingLabel"), feeling),
+      ]);
       list.appendChild(
         el(
           "article",
@@ -185,38 +191,7 @@ export async function renderLifeTab(
             ),
           ),
           el("p", { class: "entry-text" }, item.text),
-          intent
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "intentLabel")}: `),
-                intent,
-              )
-            : null,
-          expectation
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "expectationLabel")}: `),
-                expectation,
-              )
-            : null,
-          outcome
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "outcomeLabel")}: `),
-                outcome,
-              )
-            : null,
-          feeling
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "feelingLabel")}: `),
-                feeling,
-              )
-            : null,
+          details,
         ),
       );
     }
@@ -227,7 +202,6 @@ export async function renderLifeTab(
   if (tab === "memories") {
     const { data } = await api.getList("memories", { lang: toApiLang(lang), limit: 30 });
     clear(container);
-    container.appendChild(el("h2", { class: "view-title" }, t(lang, "navMemories")));
     if (data.items.length === 0) {
       container.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
       return;
@@ -247,14 +221,7 @@ export async function renderLifeTab(
             el("span", { class: "meta-ts" }, formatDateTime(str(item["ts"] ?? item["created_at"]))),
           ),
           el("p", { class: "entry-text" }, content),
-          source
-            ? el(
-                "p",
-                { class: "entry-sub" },
-                el("strong", null, `${t(lang, "sourceLabel")}: `),
-                source,
-              )
-            : null,
+          kvGroup([kvRow(t(lang, "sourceLabel"), source)]),
         ),
       );
     }
@@ -270,17 +237,21 @@ export async function renderLifeTab(
     api.getList("beliefs", { lang: toApiLang(lang), limit: 10 }),
   ]);
   clear(container);
-  container.appendChild(el("h2", { class: "view-title" }, t(lang, "navQuestionsLessons")));
 
   const grid = el("div", { class: "two-col-grid" });
 
   // Questions & Ideas
-  const qCol = el("section", { class: "panel-box" }, el("h3", null, t(lang, "questionsTitle")));
+  const qList = el("div", { class: "card-list" });
+  const qCol = el(
+    "section",
+    { class: "panel-box" },
+    el("h3", null, `${t(lang, "questionsTitle")} (${ideasRes.data.items.length})`),
+  );
   if (ideasRes.data.items.length === 0) {
     qCol.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
   } else {
     for (const item of ideasRes.data.items) {
-      qCol.appendChild(
+      qList.appendChild(
         el(
           "article",
           { class: "entry-card" },
@@ -294,15 +265,21 @@ export async function renderLifeTab(
         ),
       );
     }
+    qCol.appendChild(qList);
   }
 
   // Lessons
-  const lCol = el("section", { class: "panel-box" }, el("h3", null, t(lang, "lessonsTitle")));
+  const lList = el("div", { class: "card-list" });
+  const lCol = el(
+    "section",
+    { class: "panel-box" },
+    el("h3", null, `${t(lang, "lessonsTitle")} (${lessonsRes.items.length})`),
+  );
   if (lessonsRes.items.length === 0) {
     lCol.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
   } else {
     for (const item of lessonsRes.items) {
-      lCol.appendChild(
+      lList.appendChild(
         el(
           "article",
           { class: "entry-card" },
@@ -321,16 +298,22 @@ export async function renderLifeTab(
         ),
       );
     }
+    lCol.appendChild(lList);
   }
 
   // Dreams
-  const dCol = el("section", { class: "panel-box" }, el("h3", null, t(lang, "dreamsTitle")));
+  const dList = el("div", { class: "card-list" });
+  const dCol = el(
+    "section",
+    { class: "panel-box" },
+    el("h3", null, `${t(lang, "dreamsTitle")} (${dreamsRes.data.items.length})`),
+  );
   if (dreamsRes.data.items.length === 0) {
     dCol.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
   } else {
     for (const item of dreamsRes.data.items) {
       const spawned = str(item["spawned_question"]);
-      dCol.appendChild(
+      dList.appendChild(
         el(
           "article",
           { class: "entry-card" },
@@ -339,16 +322,22 @@ export async function renderLifeTab(
         ),
       );
     }
+    dCol.appendChild(dList);
   }
 
   // Self & Beliefs
-  const bCol = el("section", { class: "panel-box" }, el("h3", null, t(lang, "beliefsTitle")));
+  const bList = el("div", { class: "card-list" });
+  const bCol = el(
+    "section",
+    { class: "panel-box" },
+    el("h3", null, `${t(lang, "beliefsTitle")} (${beliefsRes.data.items.length})`),
+  );
   if (beliefsRes.data.items.length === 0) {
     bCol.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
   } else {
     for (const item of beliefsRes.data.items) {
       const conf = Number(item["confidence"] ?? 0);
-      bCol.appendChild(
+      bList.appendChild(
         el(
           "article",
           { class: "entry-card" },
@@ -366,6 +355,7 @@ export async function renderLifeTab(
         ),
       );
     }
+    bCol.appendChild(bList);
   }
 
   grid.append(qCol, lCol, dCol, bCol);
