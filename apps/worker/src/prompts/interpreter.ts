@@ -18,7 +18,7 @@ export type InterpreterInput = z.infer<typeof Fields>;
 const SYSTEM = `You rate how an event lands on the subject, as numbers. You do not roleplay and you do not write prose.
 Answer with one JSON object only:
 {"appraisal":{"novelty":0..1,"pleasantness":-1..1,"goal_relevance":0..1,"goal_congruence":-1..1,"predictedness":0..1,"controllability":0..1,"agency":"self"|"other"|"world","self_compatibility":-1..1,"social_relevance":0..1,"threat":0..1,"loss":0..1,"vastness_beauty":0..1,"contamination":0..1,"anticipation":0..1},"consequences":["short factual consequence"],"prediction_error":0..1}
-prediction_error is how far the outcome was from what the subject expected. consequences lists plain facts about the world that changed (at most five).`;
+prediction_error is how far the outcome was from what the subject expected. When the place where the subject was, or what was near, shaped the outcome, include that in consequences. consequences lists plain facts about the world that changed (at most five).`;
 
 export function buildInterpreterPrompt(input: InterpreterInput): BuiltPrompt {
   const i = Fields.parse(input);

@@ -1,5 +1,7 @@
 import type { Event, Physiology, Snapshot, Station } from "@truman/contracts";
 
+export const TIMELINE_SAMPLE_MS = 250;
+
 export type CharacterPoseAnim =
   "idle" | "walk" | "sleep" | "desk" | "tend_fire" | "gather" | "consume" | "dead";
 
@@ -16,6 +18,11 @@ export interface TimelineState {
   windowStartMs: number;
   windowEndMs: number;
   pose: { x: number; z: number; heading: number };
+  walk: {
+    waypoints: Extract<Event, { kind: "walk" }>["data"]["waypoints"];
+    startMs: number;
+    endMs: number;
+  } | null;
   station: Station | null;
   poseAnim: CharacterPoseAnim;
   midAction: boolean;
@@ -38,7 +45,7 @@ function parseMs(iso: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function interpolateWaypoints(
+export function interpolateWaypoints(
   waypoints: Array<{ x: number; z: number }>,
   progress: number,
 ): { x: number; z: number; heading: number } {
@@ -145,8 +152,10 @@ export function evaluateTimeline(
 ): TimelineState {
   const { startMs: windowStartMs, endMs: windowEndMs } = getTimelineBounds(snapshot, events);
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
+  const snapshotMs = parseMs(snapshot.generated_at);
 
   let pose = { ...snapshot.resident.pose };
+  let walk: TimelineState["walk"] = null;
   let station: Station | null = snapshot.resident.station;
   let poseAnim: CharacterPoseAnim = snapshot.resident.vitals.alive ? "idle" : "dead";
   let midAction = false;
@@ -183,8 +192,11 @@ export function evaluateTimeline(
     switch (ev.kind) {
       case "walk": {
         const dur = Math.max(1, tEnd - tStart);
-        const progress = isActive ? (atMs - tStart) / dur : 1;
-        pose = interpolateWaypoints(ev.data.waypoints, progress);
+        if (isActive || atMs < snapshotMs || tEnd > snapshotMs) {
+          const progress = isActive ? (atMs - tStart) / dur : 1;
+          pose = interpolateWaypoints(ev.data.waypoints, progress);
+          walk = isActive ? { waypoints: ev.data.waypoints, startMs: tStart, endMs: tEnd } : null;
+        }
         if (isActive) {
           poseAnim = "walk";
           midAction = true;
@@ -199,7 +211,9 @@ export function evaluateTimeline(
           thoughtLogId = isActive ? ev.log_id : null;
           break;
         }
-        if (ev.data.station) station = ev.data.station;
+        if (ev.data.station && (isActive || atMs < snapshotMs || tEnd > snapshotMs)) {
+          station = ev.data.station;
+        }
         if (isActive) {
           poseAnim = mapAnimNameToPose(ev.data.name, station);
           midAction = true;
@@ -320,6 +334,7 @@ export function evaluateTimeline(
     windowStartMs,
     windowEndMs,
     pose,
+    walk,
     station,
     poseAnim,
     midAction,

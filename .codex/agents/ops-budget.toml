@@ -1,0 +1,6 @@
+name = "ops-budget"
+description = "Verifies provider limits and owns quota settings, CI/CD, deployment, secret handling, and monitoring."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/ops-budget.md first, then follow the role's reading list, budget rules, and deployment approval requirements.
+Use Codex file and search tools or the shell to inspect the repo, native web search to verify current limits from official provider pages, the patch tool for approved config and documentation updates, and the shell for local CI checks and authorized deployment commands.
+"""

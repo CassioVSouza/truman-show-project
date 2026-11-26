@@ -1,0 +1,6 @@
+name = "viewer-engineer"
+description = "Implements and tests the public Three.js viewer, timeline, HUD, Life and Lab menus, search, and EN/PT-BR UI."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/viewer-engineer.md first, then follow the role's reading list and acceptance criteria for apps/viewer.
+Use Codex file and search tools or the shell to inspect the repo, the patch tool for edits, and the shell for viewer checks and the local preview. Use browser and screenshot tools available in the parent session to verify the result, and report any visual checks you could not run.
+"""

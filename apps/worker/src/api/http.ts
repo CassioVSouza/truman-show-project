@@ -43,7 +43,7 @@ export function withCors(res: Response, req: Request, env: ApiEnv): Response {
   out.headers.append("vary", "Origin");
   if (origin && env.allowedOrigins.includes(origin)) {
     out.headers.set("access-control-allow-origin", origin);
-    out.headers.set("access-control-allow-methods", "GET, OPTIONS");
+    out.headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
     out.headers.set("access-control-max-age", "86400");
   }
   return out;

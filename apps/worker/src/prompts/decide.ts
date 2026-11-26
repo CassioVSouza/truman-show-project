@@ -57,6 +57,7 @@ const FORMAT: string[] = [
   '  {"what_happened":"...","cause":"...","expectation_met":"yes" or "partly" or "no","lesson":"an if-then rule you learned (optional)","feeling_description":"how it felt, in your own words","new_questions":[],"citations":[]}',
   'Put an address or "memory:<id>" in citations for anything you state from reading or remembering.',
   'Every action also carries "thought" (what you think now), "intent" (why you do it now), "expectation" (what you think will happen), and may carry "ideas": [].',
+  "Where you are and what is near you are part of what any action will cost or give you, so let your intent and expectation say how the place figures in. In your review, say how the place played a part when it did.",
   "Choose one action:",
 ];
 

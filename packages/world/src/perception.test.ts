@@ -177,3 +177,23 @@ describe("perception text", () => {
     expect(g2.cells.includes(1)).toBe(true);
   });
 });
+
+describe("place line (decision 41)", () => {
+  test("states where the Resident is and the cabin distance behind it, in plain metres", () => {
+    const w = createWorld(1);
+    const text = perceive(w, { x: 0, z: 15, heading: 0 }).text;
+    expect(text).toMatch(/You are (in open forest|in a clearing|beside)/);
+    expect(text).toMatch(/The cabin is about \d+ m behind you\./);
+    expect(text).toMatch(/The nearest water is /);
+    clean(text);
+  });
+  test("indoors and just outside are named", () => {
+    const w = createWorld(1);
+    expect(perceive(w, { x: 0, z: 0, heading: 0 }).text).toContain("You are inside the cabin.");
+    expect(perceive(w, { x: 0, z: 5, heading: 0 }).text).toContain("just outside the cabin");
+  });
+  test("cabin ahead when facing it", () => {
+    const w = createWorld(1);
+    expect(perceive(w, { x: 0, z: 15, heading: Math.PI }).text).toMatch(/cabin is about \d+ m (straight )?ahead/);
+  });
+});

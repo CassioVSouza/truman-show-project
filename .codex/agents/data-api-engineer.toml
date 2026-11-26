@@ -1,0 +1,6 @@
+name = "data-api-engineer"
+description = "Implements and tests Supabase migrations, append-only logging, search, the Worker API, translation cache, and archives."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/data-api-engineer.md first, then follow the role's reading list and acceptance criteria for data and API work.
+Use Codex file and search tools or the shell to inspect the repo, the patch tool for edits, and the shell for local SQL and API contract checks.
+"""

@@ -187,10 +187,66 @@ export function perceive(
   }
   const lines: string[] = [];
   const ambient = ambientLines(w, env, inside, cfg);
+  const place = placeLines(w, pose, inside, burning, cfg);
   // indoors the room comes first, the outdoors only as seen or heard from inside
-  if (inside) lines.push(...objLines.slice(0, maxLines), ...ambient);
-  else lines.push(...ambient, ...objLines.slice(0, maxLines));
+  if (inside) lines.push(...place, ...objLines.slice(0, maxLines), ...ambient);
+  else lines.push(...place, ...ambient, ...objLines.slice(0, maxLines));
   return { lines, text: lines.join(" "), range };
+}
+
+/** Where the Resident is and what shelter, water and fire lie near, in plain metres (decision 41). */
+function placeLines(
+  w: WorldState,
+  pose: Pose,
+  inside: boolean,
+  burning: WorldState["fires"],
+  cfg: WorldConfig,
+): string[] {
+  const pl = cfg.perception.place;
+  const map = mapOf(w, cfg);
+  const out: string[] = [];
+  const at = (d: number, p: Vec): string => {
+    const dir = directionPhrase(bearingDeg(pose, p));
+    return d < 1.5 ? "within arm's reach" : `about ${Math.round(d)} m ${dir}`;
+  };
+  const cabinD = Math.max(0, Math.hypot(pose.x, pose.z) - 2.6);
+  const rp = nearestOnPolyline(pose, map.river);
+  const waters = [
+    { name: "the river", d: Math.max(0, dist(pose, rp) - map.riverWidth / 2), p: rp },
+    { name: "the spring", d: dist(pose, map.spring), p: map.spring },
+    {
+      name: "the still pool",
+      d: Math.max(0, dist(pose, map.pool) - map.pool.radius),
+      p: map.pool,
+    },
+  ].sort((a, b) => a.d - b.d);
+  const water = waters[0] as (typeof waters)[number];
+  const fire = burning
+    .filter((f) => inside === insideCabin(map, f))
+    .map((f) => ({ d: dist(pose, f), p: f as Vec }))
+    .sort((a, b) => a.d - b.d)[0];
+
+  if (inside) {
+    out.push("You are inside the cabin.");
+  } else if (cabinD <= pl.nearCabin) {
+    out.push("You are just outside the cabin.");
+  } else if (water.d <= pl.atWater) {
+    out.push(`You are beside ${water.name}.`);
+  } else if (dist(pose, map.stations.clearing) <= pl.clearing) {
+    out.push("You are in a clearing.");
+  } else {
+    out.push("You are in open forest.");
+  }
+  if (!inside && cabinD > pl.nearCabin && cabinD <= pl.nearbyMax) {
+    out.push(`The cabin is ${at(cabinD, { x: 0, z: 0 })}.`);
+  }
+  if (!(water.d <= pl.atWater && !inside) && water.d <= pl.nearbyMax && !inside) {
+    out.push(`The nearest water is ${water.name}, ${at(water.d, water.p)}.`);
+  }
+  if (fire && fire.d <= pl.nearbyMax) {
+    out.push(`The nearest fire is ${at(fire.d, fire.p)}.`);
+  }
+  return out;
 }
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);

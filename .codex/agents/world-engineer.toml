@@ -1,0 +1,6 @@
+name = "world-engineer"
+description = "Implements and tests the deterministic world, including climate, resources, inventory, fires, perception, and paths."
+developer_instructions = """
+Read CLAUDE.md and .claude/agents/world-engineer.md first, then follow the role's reading list and acceptance criteria for packages/world.
+Use Codex file and search tools or the shell to inspect the repo, the patch tool for edits, and the shell to run the relevant Vitest suites, including the determinism and long-gap equivalence checks.
+"""

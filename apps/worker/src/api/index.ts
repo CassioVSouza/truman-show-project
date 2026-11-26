@@ -36,6 +36,7 @@ export interface ApiContext {
   limiter?: RateLimiter;
   searchLimiter?: RateLimiter;
   adminFailures?: RateLimiter;
+  beatLimiter?: RateLimiter;
 }
 
 // Per-isolate state (best effort). Real flood control = a Cloudflare rate-limit rule in front of the Worker.
@@ -130,6 +131,29 @@ const rows = (v: unknown): Array<Record<string, unknown>> =>
 
 type Handler = () => Promise<Response>;
 
+// Live viewers count (decision 42). Body = random per-browser token (text/plain, so no CORS preflight). Only its SHA-256 is stored.
+export const VIEWER_BEAT_PATH = "/api/viewers/beat";
+const VIEWER_WINDOW_SECONDS = 120;
+const defaultBeatLimiter = new RateLimiter(6, 60_000); // heartbeat is ~1/min; 6/min/IP leaves room for a few tabs
+
+async function viewerBeat(req: Request, ctx: ApiContext): Promise<Response> {
+  const wait = (ctx.beatLimiter ?? defaultBeatLimiter).hit(
+    `b:${clientKey(req)}`,
+    ctx.now?.() ?? Date.now(),
+  );
+  if (wait > 0) return errorJson(429, "too many requests", { "retry-after": String(wait) });
+  const raw = (await req.text()).slice(0, 129);
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(raw)) return errorJson(400, "invalid token");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`viewer:${raw}`));
+  const token_hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const n = await ctx.db.rpc("api_viewer_beat", {
+    p_token_hash: token_hash,
+    p_window_seconds: VIEWER_WINDOW_SECONDS,
+  });
+  const viewers = typeof n === "number" && Number.isFinite(n) ? Math.max(1, Math.trunc(n)) : 1;
+  return json({ viewers }, 200, 0);
+}
+
 /** Entry point. Never throws: unexpected errors become a generic 500 (details only in the Worker log, already redacted). */
 export async function handleApi(
   req: Request,
@@ -143,6 +167,9 @@ export async function handleApi(
     if (!path.startsWith("/api/")) return errorJson(404, "not found");
     if (req.method === "OPTIONS")
       return withCors(new Response(null, { status: 204 }), req, ctx.env);
+    // The ONLY public write: an anonymous presence heartbeat (decision 42). It touches viewer_presence, never the log.
+    if (path === VIEWER_BEAT_PATH && req.method === "POST")
+      return withCors(await viewerBeat(req, ctx), req, ctx.env);
     if (req.method !== "GET" && req.method !== "HEAD") {
       return errorJson(405, "read only", { allow: "GET, OPTIONS" });
     }

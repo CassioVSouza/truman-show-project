@@ -4,6 +4,7 @@ export const EN = {
   readOnlyBadge: "READ-ONLY SPECTATOR",
   demoBadge: "OFFLINE DEMO",
   liveBadge: "LIVE",
+  viewersWatching: "watching",
   feedDelayedBadge: "FEED DELAYED",
   feedUnavailableBadge: "FEED UNAVAILABLE",
   feedUnavailableNotice: "The live view is temporarily unavailable. It will retry automatically.",

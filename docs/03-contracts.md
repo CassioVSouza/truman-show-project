@@ -48,7 +48,7 @@ The static Pages host serves `GET /live.json`, a single JSON object with `snapsh
 
 Search extras: `sort=relevance|time`, keyset cursor `before_id` (+ `before_rank` for relevance), `lang=pt` searches cached translations. List routes take `before=` (keyset) and `limit<=100`. Hidden entries never appear in any route. Unknown query params are ignored and never part of the cache key.
 
-No public write routes. Lab and life are the same API, separated by `category` and route prefix.
+No public write routes, with one exception (decision 42): `POST /api/viewers/beat`, an anonymous presence heartbeat. Body (`text/plain`, so no CORS preflight) is a random per-browser token, 16-128 chars `[A-Za-z0-9_-]`; the Worker stores only its SHA-256 in `viewer_presence` (no IP, no account) and answers `{"viewers": n}` (n >= 1, distinct tokens seen in the last 120 s, `no-store`). `400` bad token, `429` over 6 beats/min/IP. The viewer sends one beat on load and then every 60 s while the tab is visible, and shows `viewers`. It never touches the log and never reaches the Resident. Lab and life are the same API, separated by `category` and route prefix.
 
 ## 8. Admin (bearer `ADMIN_TOKEN`)
 `POST /admin/start | pause | resume | kill | tick | hide/:logId | unhide/:logId`, `GET /admin/export`. Send `start` with an empty body. It creates the first Resident and its world state atomically and returns `201`. It returns `409` while a tick holds the lease or when the Resident already exists. `hide` only flips the `hidden` flag (takedown lever, not a filter).

@@ -375,4 +375,32 @@ BEGIN
   END IF;
 END $$;
 
+-- viewer presence (decision 42): counts distinct hashes in the window, prunes, closed to anon, no DELETE for service_role
+DO $$
+DECLARE h1 text := repeat('a', 64); h2 text := repeat('b', 64); c int;
+BEGIN
+  PERFORM pg_temp.assert(api_viewer_beat(h1) = 1, 'first viewer counts 1');
+  PERFORM pg_temp.assert(api_viewer_beat(h1) = 1, 'same token twice is still 1');
+  PERFORM pg_temp.assert(api_viewer_beat(h2) = 2, 'second token counts 2');
+  UPDATE viewer_presence SET last_seen = now() - interval '5 minutes' WHERE token_hash = h2;
+  PERFORM pg_temp.assert(api_viewer_beat(h1) = 1, 'stale viewer leaves the 120 s window');
+  UPDATE viewer_presence SET last_seen = now() - interval '20 minutes' WHERE token_hash = h2;
+  FOR i IN 1..400 LOOP PERFORM api_viewer_beat(h1); END LOOP;
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM viewer_presence WHERE token_hash = h2), 'old rows are pruned');
+  BEGIN PERFORM api_viewer_beat('not-a-hash'); PERFORM pg_temp.assert(false, 'bad hash accepted'); EXCEPTION WHEN check_violation THEN NULL; END;
+  PERFORM pg_temp.assert((SELECT relrowsecurity FROM pg_class WHERE oid = 'viewer_presence'::regclass), 'viewer_presence has RLS');
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'viewer_presence'), 'viewer_presence has no policies');
+END $$;
+SET ROLE service_role;
+SELECT pg_temp.assert(api_viewer_beat(repeat('c', 64)) >= 1, 'service_role heartbeat');
+RESET ROLE;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
+    SET LOCAL ROLE anon;
+    BEGIN PERFORM api_viewer_beat(repeat('d', 64)); PERFORM pg_temp.assert(false, 'anon ran api_viewer_beat'); EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    RESET ROLE;
+  END IF;
+END $$;
+
 SELECT 'ALL TESTS PASSED' AS result;
