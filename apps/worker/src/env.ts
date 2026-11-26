@@ -10,6 +10,7 @@ export interface Env {
   /** Non-secret tuning (doc 05 defaults apply when absent). */
   GEMINI_MODEL?: string;
   GROQ_MODEL?: string;
+  WORKERS_AI_MODEL?: string;
   MAX_LLM_CALLS_DAY?: string;
   MAX_SEARCH_DAY?: string;
   MAX_FETCH_DAY?: string;

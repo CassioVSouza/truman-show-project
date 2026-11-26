@@ -16,6 +16,14 @@ import {
   type Mode,
 } from "../governor";
 import { LLMError, LlmClient, type LlmProvider } from "../llm";
+import {
+  affectSnapshot,
+  makeMemory,
+  pruneMemories,
+  recallMemories,
+  toMemoryRow,
+  type MemoryKind,
+} from "../memory";
 import { ALL_ACTIONS, buildPrompt, menuLines, type ActionName } from "../prompts";
 import { stubTools, type Tools } from "../tools";
 import { appraise } from "./appraise";
@@ -149,7 +157,7 @@ export async function runMindTick(deps: MindTickDeps): Promise<MindTickResult> {
   const now = deps.now ?? (() => new Date());
   const cfg = deps.governor ?? governorConfigFromEnv({});
   const started = now();
-  const holder = `tick-${started.getTime()}`;
+  const holder = `tick-${started.getTime()}-${crypto.randomUUID().slice(0, 8)}`;
   if (deps.lease && !(await deps.lease.acquire(holder, started, cfg.leaseTtlMs)))
     return {
       ran: false,
@@ -256,19 +264,32 @@ async function inner(
     plan.llmCallsLeft > 0 &&
     deps.providers.length > 0
   ) {
-    // ---- 5-9 sense, decide, execute ----
+    // ---- 5-9 sense, recall, decide, execute ----
     const senses = senseNow(mind);
     const cog = cognition(mind);
     const available = ALL_ACTIONS.filter(
       (a) => (a !== "web_search" || plan.allowSearch) && (a !== "read_page" || plan.allowFetch),
     );
+    const recallQuery = [
+      ...senses.perception,
+      ...senses.sensations,
+      ...mind.questions,
+      ...mind.goals,
+      mind.history[mind.history.length - 1]?.outcome ?? "",
+    ].join(" ");
+    const recall = recallMemories(mind.memories, {
+      queryText: recallQuery,
+      affect: affectSnapshot(mind.organism.state),
+      nowT: mind.world.t,
+      limit: cog.memoryN,
+    });
     const prompt = buildPrompt({
       sensations: senses.sensations,
       handsKnow: senses.handsKnow,
       perception: senses.perception,
       history: historyLines(mind, cog.historyN),
       planAndLessons: planLines(mind),
-      memories: [], // wave 2: memory recall
+      memories: recall.lines,
       lastResult: mind.last_result,
       availableActions: menuLines(available),
     });
@@ -301,6 +322,52 @@ async function inner(
       const action = d.action;
       actionName = action.type;
       const seq = mind.action_seq + 1;
+      const scrub = deps.scrub ?? ((s: string) => s);
+      if (recall.recalled.length > 0) {
+        mind = { ...mind, memories: recall.updated };
+        log.add({
+          kind: "memory_recall",
+          text: recall.lines.join(" | ").slice(0, 500),
+          data: { action_seq: seq, memory_ids: recall.recalled.map((m) => m.id) },
+        });
+      }
+      const encodeMemory = (
+        kind: MemoryKind,
+        text: string,
+        importance: number,
+        opts: {
+          source_url?: string | null;
+          topic?: string | null;
+          appraisal?: Record<string, unknown> | null;
+          causedBy?: LogRef;
+        } = {},
+      ) => {
+        const mem = makeMemory({
+          id: mind.next_memory_id,
+          created_t: mind.world.t,
+          kind,
+          text,
+          source_url: opts.source_url,
+          importance,
+          topic: opts.topic,
+          affect: affectSnapshot(mind.organism.state),
+        });
+        if (!mem.text) return;
+        // Avoid duplicating identical memory text in working memory (e.g. repeated lessons/reflections)
+        if (mind.memories.some((m) => m.kind === mem.kind && m.text === mem.text)) return;
+        mind = {
+          ...mind,
+          next_memory_id: mind.next_memory_id + 1,
+          memories: [...mind.memories, mem],
+        };
+        sink.memory(toMemoryRow(mem, { physiology: physiologyNow(mind) }, opts.appraisal ?? null));
+        log.add({
+          kind: "memory_write",
+          text: mem.text,
+          data: { action_seq: seq, memory_id: mem.id, kind: mem.kind, importance: mem.importance },
+          causedBy: opts.causedBy,
+        });
+      };
       log.add({ kind: "sensation", text: senses.sensations.join(" "), data: { action_seq: seq } });
       log.add({ kind: "perception", text: senses.perception.join(" "), data: { action_seq: seq } });
 
@@ -324,7 +391,10 @@ async function inner(
             text: string,
           ) => log.add({ kind, text, data: { reviews_action_seq: pend.seq }, causedBy: rr });
           child("feeling_description", rev.feeling_description);
-          if (rev.lesson) child("lesson", rev.lesson);
+          if (rev.lesson) {
+            child("lesson", rev.lesson);
+            encodeMemory("lesson", rev.lesson, 0.75, { topic: "lesson", causedBy: rr });
+          }
           for (const q of rev.new_questions) child("question", q);
           if (rev.goal_update) child("goal", rev.goal_update);
           if (rev.belief_update) child("belief", rev.belief_update.hypothesis);
@@ -379,11 +449,13 @@ async function inner(
         else fetches++;
         sink.toolCall({
           tool: name,
-          input: { input: out.tool.input },
-          status: out.tool.outcome.ok ? 200 : 0,
+          input: { input: scrub(out.tool.input) },
+          status: out.tool.outcome.status ?? (out.tool.outcome.ok ? 200 : 0),
           bytes: out.tool.outcome.bytes,
           ok: out.tool.outcome.ok,
-          error: out.tool.outcome.ok ? null : "stub",
+          error: out.tool.outcome.ok
+            ? null
+            : scrub(out.tool.outcome.error ?? "failed").slice(0, 200),
         });
         sink.toolUsage({ day, tool: name, calls: 1 });
       }
@@ -426,6 +498,46 @@ async function inner(
         causedBy: outcomeRef,
       });
       sink.appraisal({ stimulus_ref: outcomeRef, dims: ap.appraisal, source: ap.source });
+
+      // ---- memory encoding (Resident's own words + state at encoding; never raw untrusted web text) ----
+      if (action.type === "write_journal") {
+        encodeMemory("reflection", action.text, 0.65, {
+          topic: "journal",
+          appraisal: ap.appraisal as unknown as Record<string, unknown>,
+          causedBy: outcomeRef,
+        });
+      } else if (out.tool && out.tool.outcome.ok) {
+        const summary =
+          action.type === "web_search"
+            ? `I searched for "${action.query}". ${action.intent}`
+            : `I read a page. ${action.intent}`;
+        encodeMemory("discovery", summary, Math.min(0.95, 0.65 + 0.3 * ap.appraisal.novelty), {
+          source_url:
+            out.tool.outcome.source_url ?? (action.type === "read_page" ? action.url : null),
+          topic: action.type === "web_search" ? action.query.slice(0, 80) : "reading",
+          appraisal: ap.appraisal as unknown as Record<string, unknown>,
+          causedBy: outcomeRef,
+        });
+      } else if (
+        ap.prediction_error >= 0.45 ||
+        Math.abs(mind.organism.state.valence) >= 0.45 ||
+        out.reflex.length > 0
+      ) {
+        encodeMemory(
+          "experience",
+          `I chose ${describeChoice(action)}. ${out.text}`,
+          Math.min(
+            0.95,
+            0.5 + 0.35 * ap.prediction_error + 0.15 * Math.abs(mind.organism.state.valence),
+          ),
+          {
+            topic: action.type,
+            appraisal: ap.appraisal as unknown as Record<string, unknown>,
+            causedBy: outcomeRef,
+          },
+        );
+      }
+      mind = { ...mind, memories: pruneMemories(mind.memories, mind.world.t) };
 
       const item: HistoryItem = {
         seq,

@@ -1,11 +1,53 @@
 import { readConfig, redact, type Env } from "./env";
 import { SupabaseDb } from "./db/supabase";
-import { runTick } from "./tick";
+import type { Db } from "./db/types";
+import { governorConfigFromEnv, type Lease } from "./governor";
+import { providersFromEnv, type FetchLike, type LlmProvider } from "./llm";
+import { LogWriter } from "./log";
+import { MemoryRows, runMindTick, type MindTickResult } from "./tick";
+import { createWebTools } from "./tools";
 import { handleApi } from "./api";
 import { parseOrigins } from "./api/http";
 import { MyMemoryTranslator, WorkersAiTranslator, type Translator } from "./api/translate";
 
 const DEFAULT_TRANSLATE_DAY = 150;
+
+export interface LiveTickOptions {
+  db?: Db;
+  now?: () => Date;
+  fetchFn?: FetchLike;
+  lease?: Lease;
+  providers?: LlmProvider[];
+}
+
+/**
+ * Runs one full mind tick wired to real providers (Gemini -> Groq -> Workers AI fallback), the single log writer,
+ * SupabaseDb, governor config from env, guarded web tools, and the atomic kv tick lease.
+ * Fails cleanly into an idle/continuing tick when LLM keys are absent.
+ */
+export async function runLiveTick(env: Env, opts: LiveTickOptions = {}): Promise<MindTickResult> {
+  const scrub = (m: string) => redact(m, env);
+  const db = opts.db ?? new SupabaseDb(readConfig(env), opts.fetchFn);
+  const lease = opts.lease ?? (db instanceof SupabaseDb ? db.createLease() : undefined);
+  const providers = opts.providers ?? providersFromEnv(env);
+  const governor = governorConfigFromEnv(env);
+  const tools = createWebTools({
+    tavilyApiKey: env.TAVILY_API_KEY,
+    fetchFn: opts.fetchFn,
+    scrub,
+  });
+  return runMindTick({
+    db,
+    log: new LogWriter(scrub),
+    rows: new MemoryRows(),
+    providers,
+    tools,
+    governor,
+    lease,
+    now: opts.now ?? (() => new Date()),
+    scrub,
+  });
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -34,20 +76,15 @@ export default {
         adminToken: env.ADMIN_TOKEN,
         translators,
         translateDayCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TRANSLATE_DAY,
-        // admin "tick now": a fresh client so the subrequest budget of this request is not shared with the API call
-        runTick: () => runTick(new SupabaseDb(readConfig(env)), () => new Date(), scrub),
+        // admin "tick now": fresh SupabaseDb inside runLiveTick so subrequest budget is not shared with the API call
+        runTick: () => runLiveTick(env),
       },
       (m) => console.error(scrub(m)),
     );
   },
   async scheduled(_event: unknown, env: Env): Promise<void> {
     try {
-      const db = new SupabaseDb(readConfig(env));
-      await runTick(
-        db,
-        () => new Date(),
-        (m) => redact(m, env),
-      );
+      await runLiveTick(env);
     } catch (e) {
       // never log secret values
       console.error("tick failed:", redact(e instanceof Error ? e.message : String(e), env));

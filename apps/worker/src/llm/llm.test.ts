@@ -6,7 +6,9 @@ import {
   GroqProvider,
   LLMError,
   LlmClient,
+  WorkersAiProvider,
   extractJson,
+  providersFromEnv,
 } from "./index";
 
 const schema = z.object({ ok: z.boolean() });
@@ -215,5 +217,50 @@ describe("Groq adapter", () => {
         maxOutputTokens: 5,
       }),
     ).rejects.toMatchObject({ kind: "Refused" });
+  });
+});
+
+describe("Workers AI adapter & providersFromEnv", () => {
+  test("WorkersAiProvider parses response string and classifies quota errors", async () => {
+    const ok = new WorkersAiProvider({
+      run: async () => ({
+        response: '{"ok":true}',
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      }),
+    });
+    const r = await ok.complete({
+      role: "resident",
+      system: "s",
+      messages: req.messages,
+      temperature: 0.5,
+      maxOutputTokens: 10,
+    });
+    expect(r.text).toBe('{"ok":true}');
+    expect(r.tokens_in).toBe(4);
+
+    const quota = new WorkersAiProvider({
+      run: async () => {
+        throw new Error("daily neurons quota exceeded");
+      },
+    });
+    await expect(
+      quota.complete({
+        role: "resident",
+        system: "s",
+        messages: req.messages,
+        temperature: 0.5,
+        maxOutputTokens: 10,
+      }),
+    ).rejects.toMatchObject({ kind: "QuotaExhausted" });
+  });
+
+  test("providersFromEnv orders Gemini -> Groq -> Workers AI and returns [] when absent", () => {
+    expect(providersFromEnv({})).toEqual([]);
+    const list = providersFromEnv({
+      GEMINI_API_KEY: "test-key-not-real-g",
+      GROQ_API_KEY: "test-key-not-real-q",
+      AI: { run: async () => ({ response: "{}" }) },
+    });
+    expect(list.map((p) => p.id)).toEqual(["gemini", "groq", "workers-ai"]);
   });
 });

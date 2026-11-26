@@ -54,12 +54,12 @@ describe("pipeline prompts over three simulated days", async () => {
     expect(bad.slice(0, 5)).toEqual([]);
   });
 
-  test("no digits reach the Resident except plain distances in metres (decision 29)", () => {
+  test("no digits reach the Resident except plain distances in metres (decision 29) and memory citations", () => {
     const bad = new Set<string>();
     for (const c of resident) {
       const stripped = text(c).replace(/<<<untrusted[\s\S]*?end of untrusted page content>>>/g, "");
       for (const m of stripped.matchAll(/.{0,25}\d.{0,12}/g)) {
-        if (!/\d+ m\b/.test(m[0])) bad.add(m[0]);
+        if (!/\d+ m\b/.test(m[0]) && !/\bmemory:\d+\b/.test(m[0])) bad.add(m[0]);
       }
     }
     expect([...bad].slice(0, 5)).toEqual([]);

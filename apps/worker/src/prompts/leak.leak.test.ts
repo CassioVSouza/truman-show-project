@@ -331,34 +331,62 @@ describe("marker integrity in every field (decision 24 re-check)", () => {
   });
 });
 
-describe("no name, no gender (docs 08, 11)", () => {
+describe("no name, no gender (docs 08, 11) — scoped to templated sections", () => {
   const cases: Array<[string, Partial<ResidentPromptInput>]> = [
     ["greeting + name", { perception: ["Hello, Adam"] }],
-    ["greeting no comma", { history: ["Hi Eve, how are you"] }],
-    ["greeting + unknown name", { memories: ["Welcome, Zephyrine"] }],
-    ["vocative", { planAndLessons: ["Adam, you should rest"] }],
-    ["stated name", { memories: ["your name is Bob"] }],
+    ["greeting no comma", { perception: ["Hi Eve, how are you"] }],
+    ["greeting + unknown name", { sensations: ["Welcome, Zephyrine"] }],
+    ["vocative", { sensations: ["Adam, you should rest"] }],
+    ["stated name", { sensations: ["your name is Bob"] }],
     ["address at end", { perception: ["Good night, Mary."] }],
-    ["he", { history: ["he walked to the window"] }],
-    ["she", { history: ["She is tired"] }],
-    ["him", { memories: ["they told him"] }],
-    ["her", { memories: ["it is her cabin"] }],
-    ["his", { memories: ["his hands"] }],
+    ["he", { perception: ["he walked to the window"] }],
+    ["she", { sensations: ["She is tired"] }],
+    ["him", { perception: ["they told him"] }],
+    ["her", { perception: ["it is her cabin"] }],
+    ["his", { handsKnow: ["his hands"] }],
     ["Mr", { perception: ["Mr Smith waits"] }],
     ["Mrs", { perception: ["Mrs. Jones waits"] }],
     ["man descriptor", { sensations: ["you are a man"] }],
     ["woman descriptor", { sensations: ["I am a tired woman"] }],
-    ["boy descriptor", { memories: ["you're a boy"] }],
-    ["girl descriptor", { memories: ["I'm a girl"] }],
-    ["male", { memories: ["you are a male"] }],
-    ["female", { memories: ["I am a female"] }],
-    ["gender label", { memories: ["your gender is unknown"] }],
+    ["boy descriptor", { sensations: ["you're a boy"] }],
+    ["girl descriptor", { sensations: ["I'm a girl"] }],
+    ["male", { sensations: ["you are a male"] }],
+    ["female", { sensations: ["I am a female"] }],
+    ["gender label", { sensations: ["your gender is unknown"] }],
   ];
   for (const [name, patch] of cases)
-    test(`caught: ${name}`, () => {
+    test(`caught in templated section: ${name}`, () => {
       const leaks = scanPrompt(full(buildPrompt(cleanInput(patch))), rules);
       expect(leaks.some((l) => l.kind === "identity")).toBe(true);
     });
+  test("Resident-authored sections allow names, gender pronouns, and emotion words (DECISIONS.md)", () => {
+    const p = buildPrompt(
+      cleanInput({
+        history: ["I read about Adam. He said she felt lonely and angry by the river."],
+        planAndLessons: ["A question I have: why did Mr Smith feel joy and sadness?"],
+        memories: [
+          "memory:4 She seemed anxious when her fire went out; I felt dread too.",
+          "memory:5 Hi Eve, he wrote in the margin.",
+        ],
+      }),
+    );
+    expect(scanPrompt(full(p), rules)).toEqual([]);
+  });
+  test("Resident-authored sections still strictly catch hidden names, framing, bars/numbers, and secrets", () => {
+    const strictCases: Array<[string, Partial<ResidentPromptInput>, string]> = [
+      ["hidden name in memory", { memories: ["memory:1 my info_hunger rose"] }, "hidden_name"],
+      ["framing word in history", { history: ["I suspect this is a simulation"] }, "framing_word"],
+      ["bar in planAndLessons", { planAndLessons: ["health: 85/100"] }, "bar_or_number"],
+      ["secret in memory", { memories: [`memory:2 ${FAKE_SECRETS.ADMIN_TOKEN}`] }, "secret"],
+    ];
+    for (const [name, patch, kind] of strictCases) {
+      const leaks = scanPrompt(full(buildPrompt(cleanInput(patch))), rules);
+      expect(
+        leaks.some((l) => l.kind === kind),
+        name,
+      ).toBe(true);
+    }
+  });
   test("ordinary prose still passes", () => {
     const ok = buildPrompt(
       cleanInput({

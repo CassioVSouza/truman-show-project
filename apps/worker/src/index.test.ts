@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
-import worker from "./index";
+import worker, { runLiveTick } from "./index";
 import { FakeDb } from "./db/fake";
 import { SupabaseDb } from "./db/supabase";
 import { readConfig, redact, redactValue } from "./env";
 import { runTick } from "./tick";
-import { gate } from "./governor";
+import { gate, InMemoryLease } from "./governor";
+import { FakeProvider } from "./llm";
 import { measureCpu, WORKERS_FREE_CPU_MS } from "./perf/cpu";
 
 const cfg = {
@@ -273,5 +274,74 @@ describe("decision 24 re-check hardening", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]).toContain('"mode":"failed"');
     expect(db.subrequests).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("wired runLiveTick (index.ts, zero network)", () => {
+  const baseEnv = {
+    SUPABASE_URL: "https://example.test",
+    SUPABASE_SERVICE_KEY: "test-key-not-real-service",
+  };
+
+  test("runs a full mind tick with FakeProvider, acquires & releases lease, commits once", async () => {
+    const db = new FakeDb({ resident: { id: 1, status: "running" }, kv: { world_seed: 3 } });
+    const lease = new InMemoryLease();
+    const provider = new FakeProvider("fake", () => ({
+      action: {
+        type: "think",
+        thought: "The cabin is quiet.",
+        intent: "Take stock of the room.",
+        expectation: "I will notice what is near.",
+      },
+    }));
+    const res = await runLiveTick(baseEnv, {
+      db,
+      lease,
+      providers: [provider],
+      now: () => new Date("2026-11-26T12:00:00Z"),
+    });
+    expect(res.ran).toBe(true);
+    expect(res.step).toBe("decided");
+    expect(res.action).toBe("think");
+    expect(res.llm_calls).toBe(1);
+    expect(db.commits).toHaveLength(1);
+    expect(lease.row).toBeNull();
+  });
+
+  test("fails cleanly into an idle/continuing tick when no LLM keys or AI binding are present", async () => {
+    const db = new FakeDb({ resident: { id: 1, status: "running" }, kv: { world_seed: 3 } });
+    const res = await runLiveTick(baseEnv, {
+      db,
+      lease: new InMemoryLease(),
+      now: () => new Date("2026-11-26T12:00:00Z"),
+    });
+    expect(res.ran).toBe(true);
+    expect(res.llm_calls).toBe(0);
+    expect(db.commits).toHaveLength(1);
+  });
+
+  test("wires Workers AI fallback when env.AI is bound and no API keys are present", async () => {
+    const db = new FakeDb({ resident: { id: 1, status: "running" }, kv: { world_seed: 3 } });
+    const res = await runLiveTick(
+      {
+        ...baseEnv,
+        AI: {
+          run: async () => ({
+            response: JSON.stringify({
+              action: {
+                type: "think",
+                thought: "Morning light.",
+                intent: "Pause and think.",
+                expectation: "My head will clear.",
+              },
+            }),
+          }),
+        },
+      },
+      { db, lease: new InMemoryLease(), now: () => new Date("2026-11-26T12:00:00Z") },
+    );
+    expect(res.ran).toBe(true);
+    expect(res.step).toBe("decided");
+    expect(res.llm_calls).toBe(1);
   });
 });

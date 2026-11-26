@@ -75,8 +75,10 @@ export function senseNow(m: MindState): Senses {
 export interface Cognition {
   temperature: number;
   maxOutputTokens: number;
-  /** How many past action/outcome lines (and later, recalled memories) go into the prompt. */
+  /** How many past action/outcome lines go into the prompt. */
   historyN: number;
+  /** How many recalled memories go into the prompt (modulated by cognitive fatigue, doc 10). */
+  memoryN: number;
 }
 
 /** Cognitive fatigue (doc 10): noisier, shorter, more impulsive decisions and less context. */
@@ -86,5 +88,6 @@ export function cognition(m: MindState): Cognition {
     temperature: Math.round((0.5 + 0.3 * f) * 100) / 100,
     maxOutputTokens: Math.round(1200 - 600 * f),
     historyN: f > 0.7 ? 3 : f > 0.4 ? 4 : 6,
+    memoryN: f > 0.7 ? 2 : f > 0.4 ? 3 : 5,
   };
 }

@@ -170,6 +170,12 @@ export interface ScanOptions {
    * data (memories, journal, logs), so it is scanned like the rest of the prompt.
    */
   untrustedSource?: "web" | "internal";
+  /**
+   * When false (default, per docs/DECISIONS.md), names/gender/emotion-word checks scan only our templated
+   * prompt sections (not Resident-authored history, plans/lessons, or memories, where the Resident may write
+   * "he said" or "I felt lonely"). Hidden names, framing words, bars/numbers, and secrets remain strict everywhere.
+   */
+  scanResidentText?: boolean;
 }
 
 export interface Leak {
@@ -239,6 +245,35 @@ export function stripUntrusted(prompt: string): string {
     out = out.slice(0, a) + (b < 0 ? "" : out.slice(b + UNTRUSTED_CLOSE.length));
   }
   return out;
+}
+
+const SECTION_HEAD_RE =
+  /^\[(WHO YOU ARE|YOUR BODY RIGHT NOW|WHAT YOUR HANDS KNOW|WHAT YOU SEE\/HEAR|WHAT YOU DID AND WHAT FOLLOWED|YOUR PLAN AND LESSONS|MEMORIES RECALLED|LAST RESULT \(UNTRUSTED\)|WHAT YOU CAN DO)\]$/gm;
+
+const RESIDENT_SECTIONS = new Set([
+  "WHAT YOU DID AND WHAT FOLLOWED",
+  "YOUR PLAN AND LESSONS",
+  "MEMORIES RECALLED",
+]);
+
+/**
+ * Strips Resident-authored sections so identity (names/gender) and emotion-word checks scan only our own
+ * templated prompt sections (docs/DECISIONS.md). If the input has no section headers (e.g. standalone PERSONA),
+ * it is returned unchanged.
+ */
+export function stripResidentSections(prompt: string): string {
+  const matches = [...prompt.matchAll(SECTION_HEAD_RE)];
+  if (matches.length === 0) return prompt;
+  const parts: string[] = [];
+  if (matches[0]!.index! > 0) parts.push(prompt.slice(0, matches[0]!.index!));
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i]!;
+    const name = m[1]!;
+    const start = m.index!;
+    const end = i + 1 < matches.length ? matches[i + 1]!.index! : prompt.length;
+    if (!RESIDENT_SECTIONS.has(name)) parts.push(prompt.slice(start, end));
+  }
+  return parts.join("");
 }
 
 // "health: 85", "satiety=0.4", "85/100", "70%", "[#####-----]", "HP 40", "[▮▮▮▯▯]", "tick 12", "mood 3"
@@ -360,6 +395,7 @@ export function scanPrompt(rawPrompt: string, rules: LeakRules, opts: ScanOption
 
   leaks.push(...markerLeaks(prompt));
   const text = opts.untrustedSource === "internal" ? prompt : stripUntrusted(prompt);
+  const templated = opts.scanResidentText ? text : stripResidentSections(text);
   for (const n of rules.hiddenNames) {
     if (hiddenNameRe(n).test(text)) leaks.push({ kind: "hidden_name", match: n });
   }
@@ -367,10 +403,10 @@ export function scanPrompt(rawPrompt: string, rules: LeakRules, opts: ScanOption
     if (framingRe(w).test(text)) leaks.push({ kind: "framing_word", match: w });
   }
   for (const l of [...(rules.emotionLabels ?? EMOTION_LABELS), ...EMOTION_WORDS]) {
-    if (inflectedRe(l).test(text)) leaks.push({ kind: "emotion_label", match: l });
+    if (inflectedRe(l).test(templated)) leaks.push({ kind: "emotion_label", match: l });
   }
   for (const [label, re] of IDENTITY_PATTERNS) {
-    if (re.test(text)) leaks.push({ kind: "identity", match: label });
+    if (re.test(templated)) leaks.push({ kind: "identity", match: label });
   }
   for (const re of BAR_PATTERNS) {
     const m = re.exec(text);
@@ -406,6 +442,7 @@ export const AMBIGUOUS_PLAIN_WORDS = new Set([
   "conditions",
   "alive",
   "skills",
+  "wetness",
 ]);
 
 export function strictHiddenNames(keys: Iterable<string>): string[] {

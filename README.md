@@ -2,7 +2,7 @@
 
 **A persistent AI "Resident" that lives in a low-poly 3D cabin, learns through its senses and the open web, and has a hidden embodied emotional life. Anyone can watch it live and search everything it thought and did. Nobody can interact with it.**
 
-> **Status (work in progress).** Built and tested: Phase 0 (monorepo, contracts, Supabase schema, Worker skeleton, CI) and Phase 1A (world, body and organism engines, tested by a 14-day policy simulation, no LLM or web). In progress: Phase 1B (LLM adapter, tick pipeline, log writer and read-only API). Not built yet: the 3D viewer, real web tools, and a long unattended run. Nothing is claimed as built until it is tested.
+> **Status (work in progress).** Built and tested locally: Phase 0 (monorepo, contracts, Supabase schema, Worker skeleton, CI), Phase 1A (world, body and organism engines, 14-day policy simulation), and Phase 1B Waves 1–2 (LLM fallback chain, live tick pipeline with lease, memory v1, real web tools with fetch guard, log writer, read-only API, and the low-poly 3D viewer). Not done yet: static snapshot publishing, production deployment of the updated Worker and viewer, and the 72-hour unattended soak test. Nothing is claimed as built until it is tested.
 
 ## What is it?
 
@@ -34,7 +34,7 @@ Read [02 Architecture](docs/02-architecture.md) for the tick pipeline and diagra
 
 ## Run it locally
 
-What works today is the engine (world, body, organism), the Worker and its read-only API. There is no viewer yet.
+What works today is the engine (world, body, organism), the Worker (tick pipeline, memory, web tools, read-only API), and the 3D viewer (runs on built-in demo data offline or connects to a local Worker).
 
 **Requirements:** Node 22 or newer, pnpm 12 (`corepack enable` then `corepack prepare pnpm@12.23.0 --activate`), git. Docker is needed only for the database tests.
 
@@ -48,6 +48,7 @@ pnpm typecheck
 pnpm lint
 pnpm test          # all unit and simulation tests
 pnpm leak-test     # proves the Resident's prompts never contain hidden state
+pnpm --filter @truman/viewer dev   # open the 3D viewer locally (uses demo data without a Worker)
 ```
 
 Tests use a fake LLM provider, so they never call a real service.
@@ -82,7 +83,7 @@ This applies every migration to a throwaway local Postgres and runs the SQL test
 | `ADMIN_TOKEN` | For admin routes | At least 16 random characters. Admin routes are off without it |
 | `GEMINI_API_KEY` | For real LLM calls | Google AI Studio key (primary provider) |
 | `GROQ_API_KEY` | For real LLM calls | Groq key (fallback provider) |
-| `TAVILY_API_KEY` | For web search | Search provider key (the web tools are still stubs) |
+| `TAVILY_API_KEY` | For web search | Search provider key (falls back to Wikipedia search if omitted) |
 | `ALLOWED_ORIGINS` | For the API | Comma-separated list of origins allowed to call the API (CORS) |
 
 Optional tuning variables (daily caps, tick length, model names) are listed in `apps/worker/src/env.ts`.

@@ -1,4 +1,5 @@
 import { redactValue, type Config } from "../env";
+import type { Lease } from "../governor";
 import type { CommitResult, Db, LoadedState, TickPayload } from "./types";
 
 export const MAX_SUBREQUESTS = 50;
@@ -26,7 +27,12 @@ export class SupabaseDb implements Db {
    * Normal calls may use at most cap-1 subrequests; the last one is reserved for the failed-tick row, so a
    * subrequest-budget error can still be logged.
    */
-  private async call(path: string, init: RequestInit, reserved = false): Promise<unknown> {
+  private async call(
+    path: string,
+    init: RequestInit,
+    reserved = false,
+    extraHeaders?: Record<string, string>,
+  ): Promise<unknown> {
     const limit = reserved ? this.cap : this.cap - 1;
     if (this.count >= limit) throw new Error(`subrequest budget exhausted (${limit})`);
     this.count++;
@@ -40,6 +46,7 @@ export class SupabaseDb implements Db {
           apikey: this.cfg.supabaseServiceKey,
           authorization: `Bearer ${this.cfg.supabaseServiceKey}`,
           "content-type": "application/json",
+          ...extraHeaders,
         },
       });
     } catch (e) {
@@ -83,5 +90,51 @@ export class SupabaseDb implements Db {
       { method: "POST", body: JSON.stringify({ payload }) },
       payload.tick.mode === "failed",
     )) as CommitResult;
+  }
+
+  /**
+   * Atomic compare-and-set tick lease over the `kv` table (`key = 'lease'`).
+   * Steady state: 1 conditional PATCH (Postgres row-lock serializes concurrent ticks).
+   * First-ever run when the row does not exist yet: falls back to INSERT ignore-duplicates.
+   */
+  createLease(): Lease {
+    return {
+      acquire: async (holder: string, now: Date, ttlMs: number): Promise<boolean> => {
+        const nowIso = now.toISOString();
+        const expIso = new Date(now.getTime() + ttlMs).toISOString();
+        const nextVal = { holder, expires_at: expIso };
+        const patched = await this.call(
+          `/rest/v1/kv?key=eq.lease&or=(value->>expires_at.is.null,value->>expires_at.lte.${encodeURIComponent(nowIso)})`,
+          { method: "PATCH", body: JSON.stringify({ value: nextVal, updated_at: nowIso }) },
+          false,
+          { Prefer: "return=representation" },
+        );
+        if (Array.isArray(patched) && patched.length > 0) return true;
+        const inserted = await this.call(
+          "/rest/v1/kv",
+          {
+            method: "POST",
+            body: JSON.stringify({ key: "lease", value: nextVal, updated_at: nowIso }),
+          },
+          false,
+          { Prefer: "resolution=ignore-duplicates,return=representation" },
+        );
+        return Array.isArray(inserted) && inserted.length > 0;
+      },
+      release: async (holder: string): Promise<void> => {
+        await this.call(
+          `/rest/v1/kv?key=eq.lease&value->>holder=eq.${encodeURIComponent(holder)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              value: { holder: null, expires_at: null },
+              updated_at: new Date().toISOString(),
+            }),
+          },
+          true,
+          { Prefer: "return=minimal" },
+        );
+      },
+    };
   }
 }

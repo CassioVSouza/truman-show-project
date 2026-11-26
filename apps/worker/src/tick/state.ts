@@ -12,6 +12,7 @@ import {
 } from "@truman/world";
 import { newBody, STARTING_SKILLS, type BodyState, type Skills } from "@truman/body";
 import { newOrganism, type OrganismRun, type Physiology } from "@truman/organism";
+import type { MemoryItem } from "../memory";
 
 export interface HistoryItem {
   seq: number;
@@ -53,6 +54,8 @@ export interface MindState {
   questions: string[];
   goals: string[];
   beliefs: string[];
+  memories: MemoryItem[];
+  next_memory_id: number;
   /** Last tool result, untrusted. Shown once, then cleared. */
   last_result: string | null;
   action_seq: number;
@@ -87,6 +90,8 @@ export function genesis(seed: number, bornMs: number): MindState {
     questions: [],
     goals: [],
     beliefs: [],
+    memories: [],
+    next_memory_id: 1,
     last_result: null,
     action_seq: 0,
     pending: null,
@@ -101,7 +106,12 @@ export function readMind(kv: Record<string, unknown>): MindState | null {
   if (!raw || typeof raw !== "object") return null;
   const m = raw as Partial<MindState>;
   if (m.v !== 1 || !m.world || !m.body || !m.organism) return null;
-  return raw as MindState;
+  return {
+    ...(raw as MindState),
+    memories: Array.isArray(m.memories) ? m.memories : [],
+    next_memory_id:
+      typeof m.next_memory_id === "number" && m.next_memory_id >= 1 ? m.next_memory_id : 1,
+  };
 }
 
 export const clock = (m: MindState): number => m.world.t;

@@ -44,6 +44,14 @@ export function chatBody(model: string, r: WireRequest): Record<string, unknown>
   };
 }
 
+export function workersAiBody(r: WireRequest): Record<string, unknown> {
+  return {
+    messages: [{ role: "system", content: r.system }, ...r.messages],
+    temperature: r.temperature,
+    max_tokens: r.maxOutputTokens,
+  };
+}
+
 /** One repair retry: the same conversation plus the invalid reply and what was wrong with it. */
 export function repairMessages(
   messages: PromptMessage[],

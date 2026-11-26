@@ -4,5 +4,5 @@ export { menuLines, ALL_ACTIONS } from "./decide";
 export type { ActionName } from "./decide";
 export { buildInterpreterPrompt } from "./interpreter";
 export type { InterpreterInput } from "./interpreter";
-export { geminiBody, chatBody, repairMessages } from "./wire";
+export { geminiBody, chatBody, workersAiBody, repairMessages } from "./wire";
 export type { WireRequest } from "./wire";

@@ -6,6 +6,8 @@ export interface ToolOutcome {
   text: string;
   source_url?: string;
   bytes: number;
+  status?: number;
+  error?: string | null;
 }
 
 export interface Tools {
@@ -14,6 +16,22 @@ export interface Tools {
 }
 
 const NOTHING = "The terminal gives no answer.";
+
+export {
+  guardedFetch,
+  validateFetchUrl,
+  isBlockedHostname,
+  isBlockedIpv4,
+  isBlockedIpv6,
+  isAllowedContentType,
+  FetchGuardError,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_REDIRECTS,
+} from "./fetch-guard";
+export type { GuardedFetchOptions, GuardedResponse, FetchGuardErrorCode } from "./fetch-guard";
+export { createWebTools, htmlToText } from "./web";
+export type { WebToolsOptions } from "./web";
 
 /** Honest stub: no network, no content. */
 export const stubTools: Tools = {
