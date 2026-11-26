@@ -44,6 +44,8 @@ export class SupabaseDb implements Db {
       });
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
+      // cause intentionally not attached: the original error may contain the key
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`supabase ${path.split("?")[0]} request failed: ${redactValue(m, key)}`);
     }
     if (!res.ok) {
