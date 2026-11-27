@@ -275,12 +275,7 @@ class ViewerApp {
         this.thoughtOverlayEl,
         el("div", { class: "camera-controls", id: "camera-controls" }),
       ),
-      el(
-        "div",
-        { class: "stage-overlay-bottom" },
-        this.recentFeedEl,
-        this.nowDoingOverlayEl,
-      ),
+      el("div", { class: "stage-overlay-bottom" }, this.recentFeedEl, this.nowDoingOverlayEl),
       this.cinemaExitEl,
     );
 
@@ -639,7 +634,8 @@ class ViewerApp {
   private renderStatusChips(evaluated: TimelineState | null): void {
     const snapshot = this.snapshot;
     const status = this.status?.status ?? snapshot?.status;
-    const alive = (evaluated?.alive ?? snapshot?.resident.vitals.alive ?? true) && status !== "dead";
+    const alive =
+      (evaluated?.alive ?? snapshot?.resident.vitals.alive ?? true) && status !== "dead";
     const lastTickIso = this.status?.last_tick_at ?? snapshot?.generated_at ?? null;
     const countdown = formatDecisionCountdown(
       {

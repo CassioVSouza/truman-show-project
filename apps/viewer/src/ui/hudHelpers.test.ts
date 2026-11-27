@@ -122,7 +122,13 @@ describe("hudHelpers", () => {
         t_end: isoAt(20),
         actor: "resident",
         kind: "walk",
-        data: { waypoints: [{ x: 0, z: 0 }, { x: 1, z: 1 }], speed: 1.2 },
+        data: {
+          waypoints: [
+            { x: 0, z: 0 },
+            { x: 1, z: 1 },
+          ],
+          speed: 1.2,
+        },
         log_id: 10,
       },
       {

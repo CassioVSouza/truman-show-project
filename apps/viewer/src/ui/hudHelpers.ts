@@ -239,10 +239,7 @@ export const FLAT_VITAL_TRENDS: VitalTrends = {
   sleep_pressure: "flat",
 };
 
-export function computeVitalTrends(
-  prev: VitalsSnapshot | null,
-  curr: VitalsSnapshot,
-): VitalTrends {
+export function computeVitalTrends(prev: VitalsSnapshot | null, curr: VitalsSnapshot): VitalTrends {
   if (!prev) return FLAT_VITAL_TRENDS;
   return {
     health: diffTrend(prev.health, curr.health, 0.4),
