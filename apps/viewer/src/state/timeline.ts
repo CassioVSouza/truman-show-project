@@ -8,6 +8,7 @@ export type CharacterPoseAnim =
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
 
 export interface FireVisualState {
+  id: string;
   state: "lit" | "burning" | "dying" | "out";
   x: number;
   z: number;
@@ -25,6 +26,7 @@ export interface TimelineState {
   } | null;
   station: Station | null;
   poseAnim: CharacterPoseAnim;
+  restPlacement: { onBed?: boolean; heading?: number } | null;
   midAction: boolean;
   activeActionLabel: string;
   activeEventSeq: number | null;
@@ -34,7 +36,7 @@ export interface TimelineState {
   physiology: Physiology;
   weather: string;
   timeOfDay: TimeOfDay;
-  fire: FireVisualState;
+  fires: FireVisualState[];
   alive: boolean;
   causeOfDeath: string | null;
   status: string;
@@ -158,6 +160,7 @@ export function evaluateTimeline(
   let walk: TimelineState["walk"] = null;
   let station: Station | null = snapshot.resident.station;
   let poseAnim: CharacterPoseAnim = snapshot.resident.vitals.alive ? "idle" : "dead";
+  let restPlacement: TimelineState["restPlacement"] = null;
   let midAction = false;
   let activeActionLabel = snapshot.resident.vitals.alive ? "idle" : "deceased";
   let activeEventSeq: number | null = null;
@@ -167,16 +170,18 @@ export function evaluateTimeline(
   let physiology: Physiology = { ...snapshot.resident.body };
   let weather = snapshot.world.weather;
   let timeOfDay: TimeOfDay = snapshot.world.time_of_day ?? "day";
-  const hearth = snapshot.world.entities.find((entity) => entity.type === "fire");
-  const hearthState = (hearth?.appearance as { state?: unknown } | null)?.state;
-  let fire: FireVisualState = {
-    state:
-      hearthState === "lit" || hearthState === "burning" || hearthState === "dying"
-        ? hearthState
-        : "out",
-    x: hearth?.x ?? 2.0,
-    z: hearth?.z ?? 0.7,
-  };
+  const fires = new Map<string, FireVisualState>();
+  for (const entity of snapshot.world.entities) {
+    if (entity.type !== "fire") continue;
+    const { id, x, z, appearance } = entity;
+    const state = (appearance as { state?: unknown } | null)?.state;
+    fires.set(id, {
+      id,
+      x,
+      z,
+      state: state === "lit" || state === "burning" || state === "dying" ? state : "out",
+    });
+  }
   let alive = snapshot.resident.vitals.alive;
   let causeOfDeath = snapshot.resident.vitals.cause_of_death;
   let status = snapshot.status;
@@ -216,6 +221,9 @@ export function evaluateTimeline(
         }
         if (isActive) {
           poseAnim = mapAnimNameToPose(ev.data.name, station);
+          if (poseAnim === "sleep") {
+            restPlacement = { onBed: ev.data.on_bed, heading: ev.data.heading };
+          }
           midAction = true;
           activeActionLabel = ev.data.name.replace(/_/g, " ");
           activeEventSeq = ev.seq;
@@ -244,12 +252,20 @@ export function evaluateTimeline(
         break;
       }
       case "fire": {
-        fire = { state: ev.data.state, x: ev.data.x, z: ev.data.z };
+        if (atMs >= snapshotMs && tStart < snapshotMs) break;
+        const { id, state, x, z } = ev.data;
+        // Older events identify a fire by position. Carry its snapshot identity when known.
+        const legacyId = `fire_at_${x}_${z}`;
+        if (id) fires.delete(legacyId);
+        const key =
+          id ?? [...fires.values()].find((fire) => fire.x === x && fire.z === z)?.id ?? legacyId;
+        fires.set(key, { id: key, state, x, z });
         break;
       }
       case "sleep_start": {
-        asleep = true;
-        if (isActive) {
+        asleep = tEnd === tStart || atMs < tEnd;
+        if (asleep) restPlacement = { onBed: ev.data.on_bed, heading: ev.data.heading };
+        if (isActive && asleep) {
           poseAnim = "sleep";
           midAction = true;
           activeActionLabel = "sleeping";
@@ -259,6 +275,7 @@ export function evaluateTimeline(
       }
       case "sleep_end": {
         asleep = false;
+        if (poseAnim !== "sleep") restPlacement = null;
         break;
       }
       case "consume": {
@@ -337,6 +354,7 @@ export function evaluateTimeline(
     walk,
     station,
     poseAnim,
+    restPlacement: poseAnim === "sleep" ? restPlacement : null,
     midAction,
     activeActionLabel,
     activeEventSeq,
@@ -346,7 +364,7 @@ export function evaluateTimeline(
     physiology,
     weather,
     timeOfDay,
-    fire,
+    fires: [...fires.values()],
     alive,
     causeOfDeath,
     status,

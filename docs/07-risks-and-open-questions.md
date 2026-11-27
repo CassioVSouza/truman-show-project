@@ -1,7 +1,7 @@
 # 07 - Risks and Open Questions
 
 ## Decisions recorded
-Unnamed/ungendered Resident, English inner life, PT-BR presentation. Open web day one. Nothing scripted. 10-minute ticks within the governor. **Feelings are hidden body state rendered as sensations only (doc 08).** **Supabase Postgres.** **Everything logged and searchable, technical content in a separate Lab menu (doc 09).** **No content filtering of the Resident.** Low-poly. No scaffolding yet. Persona/behaviour instructions to come from you.
+Unnamed/ungendered Resident, English inner life, PT-BR presentation. Open web day one. Nothing scripted. Three-minute scheduled ticks within the governor. **Feelings are hidden body state rendered as sensations only (doc 08).** **Supabase Postgres.** **Everything logged and searchable, technical content in a separate Lab menu (doc 09).** **No content filtering of the Resident.** Low-poly. No scaffolding yet. Persona/behaviour instructions to come from you.
 
 **Added in this revision:** full body and survival simulation with life bar, hunger, thirst, temperature, injury, illness (bars visible to spectators, hidden from the Resident); starting skills and starter kit; resource economy with seasons and a 14-day gentle-start ramp; reflexes and early-wake ticks; death is real. Free `*.pages.dev`, Portuguese search over cached translations, public Lab, GitHub Releases for archives (all confirmed).
 
@@ -23,7 +23,7 @@ Unnamed/ungendered Resident, English inner life, PT-BR presentation. Open web da
 | 13 | Translation limits and quality | Cache per entry, EN fallback |
 | 14 | Asset licensing | CC0 assets only, tracked in `ASSETS.md` |
 | 15 | The Resident can experience negative states (fear, pain, loneliness) by design | Intended and visible in the Lab; no mitigation |
-| 16 | **Early death**: a 10-minute decision cadence plus a small free model may fail basic survival and the project ends within days | Starter kit, gentle-start ramp, reflexes, early-wake ticks, innate know-how, calibration test (doc 10 s.8). Residual risk accepted; tune rates, not scripts |
+| 16 | **Early death**: decision intervals, quota throttling and a small free model may cause the Resident to miss basic survival needs | Starter kit, gentle-start ramp, reflexes, early-wake ticks, innate know-how, calibration test (doc 10 s.8). Residual risk accepted; tune rates, not scripts |
 | 17 | Minute-resolution body/world catch-up exceeds Worker CPU limits | Closed-form/coarse stepping for long gaps, batch writes, equivalence tests |
 | 18 | Early-wake ticks and survival decisions burn the LLM quota | `MAX_EARLY_TICKS_DAY`, rule-table appraisal, long macro-actions |
 | 19 | Calibration numbers are guesses | All config; watch first week and adjust rates (this is tuning, not story) |

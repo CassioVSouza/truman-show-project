@@ -27,7 +27,8 @@ import {
 import { ALL_ACTIONS, buildPrompt, menuLines, type ActionName } from "../prompts";
 import { stubTools, type Tools } from "../tools";
 import { appraise } from "./appraise";
-import { executeAction, idleFor, type ExecOutcome } from "./engine";
+import { executeAction, idleFor, recoverResidentPosition, type ExecOutcome } from "./engine";
+import { fireAdvanceEvents } from "./fire-events";
 import type { LogRef } from "../log";
 import type { SnapshotPublisher, SnapshotSource } from "../snapshot";
 import type { TickLog, TickRows } from "./ports";
@@ -56,6 +57,8 @@ export interface MindTickDeps {
   providers: LlmProvider[];
   tools?: Tools;
   now?: () => Date;
+  /** Nominal cron timestamp, so dispatch jitter doesn't skip a due scheduled decision. */
+  scheduledAtMs?: number;
   governor?: GovernorConfig;
   lease?: Lease;
   /** Scrubs secrets from error text before it is stored. */
@@ -284,6 +287,12 @@ async function inner(
     cfg.timeScale,
   );
   const tNow = worldTimeAt(mind, started.getTime());
+  const recovered = recoverResidentPosition(mind);
+  if (recovered !== mind) {
+    log.add({ kind: "system", text: "Recovered a Resident position overlapping a solid object." });
+    mind = recovered;
+  }
+  const decisionAtMs = deps.scheduledAtMs ?? started.getTime();
   const day = started.toISOString().slice(0, 10);
   const client = new LlmClient(deps.providers, {
     exhausted: plan.budget.exhausted,
@@ -304,7 +313,9 @@ async function inner(
   const t0 = mind.world.t;
   if (mind.body.alive && t0 < tNow) {
     const gap = tNow - t0;
-    const r = idleFor(mind, gap, plan.mode === "idle" || !plan.allowDecide);
+    const r = idleFor(mind, gap, plan.mode === "idle");
+    for (const event of fireAdvanceEvents(mind, mind.world, r.mind.world.t))
+      sink.event({ v: 1, actor: "world", ...event });
     mind = organismStep(r.mind, r.mind.world.t - t0);
     note(r.wake);
   }
@@ -312,7 +323,7 @@ async function inner(
   const busy = mind.body.alive && mind.world.t > tNow + 1e-6;
   const realSinceDecisionMin =
     mind.last_decision_ms !== undefined
-      ? (started.getTime() - mind.last_decision_ms) / 60000
+      ? (decisionAtMs - mind.last_decision_ms) / 60000
       : (tNow - mind.last_decision_t) / prevScale;
   const due = realSinceDecisionMin >= plan.decisionIntervalMin - 1e-6;
 
@@ -623,7 +634,7 @@ async function inner(
         },
         prev_key: out.key,
         last_decision_t: tNow,
-        last_decision_ms: started.getTime(),
+        last_decision_ms: decisionAtMs,
       };
       for (const v of out.viewer)
         sink.event({
@@ -638,7 +649,7 @@ async function inner(
   } else if (busy) {
     step = "continuing";
   } else {
-    step = plan.mode === "idle" || !plan.allowDecide ? "idle" : "continuing";
+    step = plan.mode === "idle" ? "idle" : "continuing";
   }
 
   // ---- death is permanent: one causal report, one status flip ----

@@ -1,4 +1,5 @@
 // Perception: what the Resident sees, as plain sentences. Never numbers about the body or hidden state.
+import type { Environment } from "@truman/contracts";
 import { WORLD_CONFIG, type WorldConfig } from "./config";
 import { fireState } from "./fire";
 import { dist, insideCabin, nearestOnPolyline } from "./map";
@@ -187,7 +188,7 @@ export function perceive(
   }
   const lines: string[] = [];
   const ambient = ambientLines(w, env, inside, cfg);
-  const place = placeLines(w, pose, inside, burning, cfg);
+  const place = placeLines(w, pose, env.shelter, burning, cfg);
   // indoors the room comes first, the outdoors only as seen or heard from inside
   if (inside) lines.push(...place, ...objLines.slice(0, maxLines), ...ambient);
   else lines.push(...place, ...ambient, ...objLines.slice(0, maxLines));
@@ -198,18 +199,22 @@ export function perceive(
 function placeLines(
   w: WorldState,
   pose: Pose,
-  inside: boolean,
+  shelter: Environment["shelter"],
   burning: WorldState["fires"],
   cfg: WorldConfig,
 ): string[] {
   const pl = cfg.perception.place;
   const map = mapOf(w, cfg);
+  const inside = shelter === "cabin";
   const out: string[] = [];
   const at = (d: number, p: Vec): string => {
     const dir = directionPhrase(bearingDeg(pose, p));
     return d < 1.5 ? "within arm's reach" : `about ${Math.round(d)} m ${dir}`;
   };
-  const cabinD = Math.max(0, Math.hypot(pose.x, pose.z) - 2.6);
+  const cabinD = Math.hypot(
+    Math.max(0, Math.abs(pose.x) - map.cabin.halfW),
+    Math.max(0, Math.abs(pose.z) - map.cabin.halfD),
+  );
   const rp = nearestOnPolyline(pose, map.river);
   const waters = [
     { name: "the river", d: Math.max(0, dist(pose, rp) - map.riverWidth / 2), p: rp },
@@ -240,11 +245,15 @@ function placeLines(
   if (!inside && cabinD > pl.nearCabin && cabinD <= pl.nearbyMax) {
     out.push(`The cabin is ${at(cabinD, { x: 0, z: 0 })}.`);
   }
+  if (shelter === "canopy") out.push("Branches overhead break some of the wind and rain.");
+  if (shelter === "open") out.push("There is no cover overhead here.");
   if (!(water.d <= pl.atWater && !inside) && water.d <= pl.nearbyMax && !inside) {
     out.push(`The nearest water is ${water.name}, ${at(water.d, water.p)}.`);
   }
   if (fire && fire.d <= pl.nearbyMax) {
     out.push(`The nearest fire is ${at(fire.d, fire.p)}.`);
+  } else {
+    out.push(inside ? "The hearth is cold." : "There is no fire burning nearby.");
   }
   return out;
 }

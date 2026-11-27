@@ -42,17 +42,18 @@ describe("governor integration", () => {
     let agent: FakeProvider | undefined;
     const { db, results } = await simulate({
       days: 1,
-      governor: { ...DEFAULT_GOVERNOR, maxLlmCallsDay: 12 },
+      stepMin: DEFAULT_GOVERNOR.tickMinutes,
+      governor: { ...DEFAULT_GOVERNOR, maxLlmCallsDay: 12, timeScale: 1 },
       start: new Date("2026-03-01T00:00:00Z"),
-      providers: (d) => [(agent = makeAgent(d))],
+      providers: (d) => [(agent = makeAgent(d, { policy: idleMind }))],
     });
     const modes = results.map((r) => r.mode);
     expect(modes).toContain("normal");
     expect(modes).toContain("thrifty");
     expect(modes).toContain("idle");
-    expect((agent as FakeProvider).calls.length).toBeLessThanOrEqual(12 + 6); // one tick may straddle the cap
+    expect((agent as FakeProvider).calls.length).toBe(12);
     const b = db.kv["budget"] as { llm_calls: number };
-    expect(b.llm_calls).toBeLessThanOrEqual(18);
+    expect(b.llm_calls).toBe(12);
     const t = db.mind!.world.t;
     expect(t).toBeGreaterThan(1400); // time kept passing while idle
     // thrifty ticks never call the Interpreter

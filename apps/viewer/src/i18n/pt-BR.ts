@@ -1,3 +1,4 @@
+import { DEFAULT_TICK_MINUTES } from "@truman/contracts";
 import type { I18nKey } from "./en";
 
 export const PT_BR: Record<I18nKey, string> = {
@@ -43,10 +44,10 @@ export const PT_BR: Record<I18nKey, string> = {
   seasonLabel: "Estação",
   weatherLabel: "Clima",
   phaseLabel: "Fase",
-  decisionCadenceNotice: "O Residente toma decisões a cada 10 minutos.",
+  decisionCadenceNotice: `O Residente toma decisões a cada ${DEFAULT_TICK_MINUTES} minutos.`,
   nextDecisionIn: "Próxima decisão",
   nextDecisionDue: "Decisão iminente",
-  nextDecisionCadence: "Ciclo 10m",
+  nextDecisionCadence: `Ciclo ${DEFAULT_TICK_MINUTES}m`,
   nextDecisionPaused: "Pausado",
   sidebarCollapse: "Recolher painel de sinais",
   sidebarExpand: "Expandir painel de sinais",

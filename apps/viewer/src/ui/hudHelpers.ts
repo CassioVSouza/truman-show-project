@@ -1,9 +1,9 @@
-import type { Event, Snapshot } from "@truman/contracts";
+import { DEFAULT_TICK_MINUTES, type Event, type Snapshot } from "@truman/contracts";
 import { t, type UiLang } from "../i18n";
 import type { TimeOfDay } from "../state/timeline";
 import { formatTime } from "./dom";
 
-export const DECISION_CADENCE_MS = 10 * 60_000;
+export const DECISION_CADENCE_MS = DEFAULT_TICK_MINUTES * 60_000;
 
 export interface CountdownInput {
   lastTickIso: string | null;

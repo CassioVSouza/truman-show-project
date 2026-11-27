@@ -235,72 +235,33 @@ describe("4x world time (Decision 44)", () => {
     expect(feed?.status.world_day).toBe(5);
   });
 
-  test("decision cadence stays 10 real min in normal mode and 20 real min in thrifty mode at 4x", async () => {
+  test("decision cadence is 3 real min normally and 6 in thrifty mode despite cron dispatch jitter", async () => {
     const db = new SimDb();
     const providers = [thinkProvider()];
-    const gov = { ...DEFAULT_GOVERNOR, timeScale: 4, tickMinutes: 10, maxLlmCallsDay: 100 };
+    const gov = { ...DEFAULT_GOVERNOR, maxLlmCallsDay: 100 };
+    const evening = BASE + 20 * 60 * MIN;
+    const run = (nominalMinutes: number, dispatchDelayMs = 0) => {
+      const scheduledAtMs = evening + nominalMinutes * MIN;
+      return runMindTick({
+        db,
+        log: new LogWriter(),
+        rows: new MemoryRows(),
+        providers,
+        scheduledAtMs,
+        now: () => new Date(scheduledAtMs + dispatchDelayMs),
+        governor: gov,
+      });
+    };
 
-    // Tick at T=0 -> decides
-    const r0 = await runMindTick({
-      db,
-      log: new LogWriter(),
-      rows: new MemoryRows(),
-      providers,
-      now: () => new Date(BASE),
-      governor: gov,
-    });
-    expect(r0.step).toBe("decided");
+    expect(await run(0, 5_000)).toMatchObject({ step: "decided" });
+    expect(await run(2)).toMatchObject({ step: "continuing", llm_calls: 0 });
+    expect(await run(3, 1_000)).toMatchObject({ step: "decided" });
+    expect(db.mind?.last_decision_ms).toBe(evening + 3 * MIN);
+    expect(worldTimeAt(db.mind!, evening + 3 * MIN + 5_000)).toBe(12);
 
-    // Tick at T=+5 real min (+20 world min) -> NOT due (normal requires 10 real min = 40 world min)
-    const r5 = await runMindTick({
-      db,
-      log: new LogWriter(),
-      rows: new MemoryRows(),
-      providers,
-      now: () => new Date(BASE + 5 * MIN),
-      governor: gov,
-    });
-    expect(r5.step).toBe("continuing");
-    expect(r5.llm_calls).toBe(0);
-
-    // Tick at T=+10 real min (+40 world min) -> DUE
-    const r10 = await runMindTick({
-      db,
-      log: new LogWriter(),
-      rows: new MemoryRows(),
-      providers,
-      now: () => new Date(BASE + 10 * MIN),
-      governor: gov,
-    });
-    expect(r10.step).toBe("decided");
-
-    // Push budget into thrifty (>= 70% of 100)
     const b = db.kv["budget"] as Record<string, unknown>;
     db.kv["budget"] = { ...b, llm_calls: 75 };
-
-    // Tick at T=+20 real min (10 real min since T=10) -> NOT due in thrifty (needs 20 real min)
-    const r20 = await runMindTick({
-      db,
-      log: new LogWriter(),
-      rows: new MemoryRows(),
-      providers,
-      now: () => new Date(BASE + 20 * MIN),
-      governor: gov,
-    });
-    expect(r20.mode).toBe("thrifty");
-    expect(r20.step).toBe("continuing");
-    expect(r20.llm_calls).toBe(0);
-
-    // Tick at T=+30 real min (20 real min since T=10) -> DUE in thrifty
-    const r30 = await runMindTick({
-      db,
-      log: new LogWriter(),
-      rows: new MemoryRows(),
-      providers,
-      now: () => new Date(BASE + 30 * MIN),
-      governor: gov,
-    });
-    expect(r30.mode).toBe("thrifty");
-    expect(r30.step).toBe("decided");
+    expect(await run(6)).toMatchObject({ mode: "thrifty", step: "continuing", llm_calls: 0 });
+    expect(await run(9)).toMatchObject({ mode: "thrifty", step: "decided" });
   });
 });

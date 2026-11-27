@@ -18,6 +18,7 @@ const DEFAULT_TRANSLATE_DAY = 150;
 export interface LiveTickOptions {
   db?: Db;
   now?: () => Date;
+  scheduledAtMs?: number;
   fetchFn?: FetchLike;
   lease?: Lease;
   providers?: LlmProvider[];
@@ -50,6 +51,7 @@ export async function runLiveTick(env: Env, opts: LiveTickOptions = {}): Promise
     governor,
     lease,
     now: opts.now ?? (() => new Date()),
+    scheduledAtMs: opts.scheduledAtMs,
     scrub,
     publishSnapshot:
       writeSnapshot && db instanceof SupabaseDb
@@ -102,9 +104,9 @@ export default {
       (m) => console.error(scrub(m)),
     );
   },
-  async scheduled(_event: unknown, env: Env): Promise<void> {
+  async scheduled(event: { scheduledTime?: number }, env: Env): Promise<void> {
     try {
-      await runLiveTick(env);
+      await runLiveTick(env, { scheduledAtMs: event.scheduledTime });
     } catch (e) {
       // never log secret values
       console.error("tick failed:", redact(e instanceof Error ? e.message : String(e), env));

@@ -20,9 +20,13 @@ import {
   moveTo,
   perceive,
   repairShelter,
+  recoverWalkPosition,
+  restHeading,
+  restSpot,
   tendFire,
   useItem,
   wear,
+  walkMapOf,
   type ActionResult as WorldResult,
   type Actor,
   type Facts,
@@ -39,6 +43,7 @@ import {
 } from "@truman/body";
 import { renderReflexEvents, type RoutineEvent } from "@truman/organism";
 import type { Tools, ToolOutcome } from "../tools";
+import { changedFires, fireAdvanceEvents } from "./fire-events";
 import { isoAt, type MindState } from "./state";
 
 type ActionT = z.infer<typeof Action>;
@@ -92,6 +97,14 @@ function nearStation(m: MindState, p: { x: number; z: number }): MindState["stat
   return best;
 }
 
+/** Correct a persisted solid overlap before the next active tick reads the position. */
+export function recoverResidentPosition(mind: MindState): MindState {
+  if (!mind.body.alive) return mind;
+  const p = recoverWalkPosition(walkMapOf(mind.world), mind.pos);
+  if (!p || p === mind.pos) return mind;
+  return { ...mind, pos: { ...p, heading: mind.pos.heading }, station: nearStation(mind, p) };
+}
+
 /** Awake (or asleep when `sleep` and sleepy), quietly idle for `minutes`. Chunked so conditions can change. */
 export function idleFor(
   m: MindState,
@@ -109,7 +122,7 @@ export function idleFor(
     const from = mind.world.t;
     const env = bodyEnvironmentFromWorld(environmentAt(mind.world, mind.pos));
     let body = mind.body;
-    if (sleep && body.sleep_pressure > 0.5) {
+    if (sleep && body.sleep_pressure > 0.5 && restHeading(mind.world, mind.pos) !== undefined) {
       const r = performAction(body, { type: "sleep", minutes: seg }, env, mind.skills);
       if (r.state.t - from > 1e-6) {
         body = r.state;
@@ -140,6 +153,7 @@ interface Plan {
   ok: boolean;
   facts: Facts;
   routine: RoutineEvent;
+  restPlacement?: { on_bed: boolean; heading: number };
 }
 
 const fail = (text: string, minutes = 1): Plan => ({
@@ -280,18 +294,29 @@ function plan(m: MindState, a: Actor, action: ActionT): Plan {
       return fromWorld(r, "move_to", "walk");
     }
     case "rest": {
+      const heading = restHeading(w, m.pos);
+      if (heading === undefined) return fail("There is no room to lie down here.");
+      const site = restSpot(w, m.pos);
       const env = environmentAt(w, m.pos);
       const minutes = action.hours * 60;
       const sleeps =
         env.time_of_day === "night" || m.body.sleep_pressure >= 0.35 || m.body.stamina < 60;
+      const place = site.on_bed
+        ? "on the bed in the cabin"
+        : site.shelter === "cabin"
+          ? "on the cabin floor"
+          : site.shelter === "canopy"
+            ? "on the ground beneath the trees"
+            : "on the open ground";
       return {
         r: null,
         body: sleeps ? { type: "sleep", minutes } : { type: "rest", minutes },
-        text: sleeps ? "You lie down and sleep." : "You rest for a while.",
+        text: sleeps ? `You sleep ${place}.` : `You rest ${place}.`,
         minutes,
         ok: true,
-        facts: { slept: sleeps },
+        facts: { slept: sleeps, shelter: site.shelter, on_bed: site.on_bed },
         routine: sleeps ? "sleep" : "rest",
+        restPlacement: { on_bed: site.on_bed, heading },
       };
     }
     case "eat":
@@ -382,7 +407,7 @@ export async function executeAction(
 
   const w0 = p.r && p.r.ok ? p.r.world : m.world;
   const walk = p.r?.walk;
-  const a1: Actor = p.r && (p.r.ok || walk?.reached) ? p.r.actor : actor;
+  const a1 = p.r?.actor ?? actor;
   const env = bodyEnvironmentFromWorld(environmentAt(w0, a1.pos));
   const res = performAction(m.body, p.body, env, a1.skills);
   const world = advance(w0, Math.max(res.state.t, w0.t));
@@ -416,6 +441,9 @@ export async function executeAction(
     skills: res.skills,
     pos: { x: a1.pos.x, z: a1.pos.z, heading },
     last_result: lastResult,
+    actionFireStart: w0.fires.some((fire) => fire.fuel > 0)
+      ? { t: w0.t, fires: w0.fires }
+      : undefined,
   };
   mind = { ...mind, station: nearStation(mind, mind.pos) };
   if (action.type === "move_to" && p.ok) mind = { ...mind, station: action.station };
@@ -451,11 +479,14 @@ export async function executeAction(
     );
   if (action.type === "write_journal") span("anim", { name: "write", station: "journal_table" });
   if (tool) span("anim", { name: "read" });
-  if (p.body.type === "rest" && action.type === "rest") span("anim", { name: "rest" });
-  if (p.body.type === "sleep") {
-    span("sleep_start", {});
+  if (p.restPlacement && p.body.type === "rest") span("anim", { name: "rest", ...p.restPlacement });
+  if (p.restPlacement && p.body.type === "sleep") {
+    span("sleep_start", p.restPlacement);
     span("sleep_end", {}, world.t, world.t);
   }
+  if (p.body.type === "handle_fire" || (action.type === "make_fire" && p.facts.burn_risk))
+    span("anim", { name: action.type }, workStart);
+  viewer.push(...changedFires(m, w0), ...fireAdvanceEvents(m, w0, world.t));
   if (p.ok && (action.type === "eat" || action.type === "drink"))
     span(
       "consume",

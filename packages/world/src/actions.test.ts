@@ -11,6 +11,7 @@ import {
   moveTo,
   repairShelter,
   wear,
+  restHeading,
   restSpot,
   fish,
   useItem,
@@ -25,9 +26,12 @@ import {
   wornInsulation,
   foodEffects,
 } from "./items";
-import { generateMap } from "./map";
+import { WORLD_CONFIG } from "./config";
+import { dist, generateMap, nearestOnPolyline, nearestOnSegment, polar } from "./map";
+import { clearWalkSegment, planWalk, recoverWalkPosition } from "./path";
 import type { WorldState } from "./types";
-import { advance, createWorld, environmentAt } from "./world";
+import { hitsWalkObstacle, walkObstacles } from "./walkGeometry";
+import { advance, createWorld, environmentAt, walkMapOf } from "./world";
 
 const DAY = 1440;
 const skills = {
@@ -248,6 +252,65 @@ describe("fire", () => {
     }
     expect(dry).toBeGreaterThan(wet);
   });
+  test("needs unobstructed dry ground and places a campfire beside the Resident", () => {
+    const { w, a } = start(2489842540);
+    const map = generateMap(w.seed);
+    const tree = w.nodes.find((n) => n.id === "tree_17")!;
+    const overlap = { x: tree.x, z: tree.z };
+    const blocked = makeFire(w, withWood({ ...a, pos: overlap }, 4));
+    expect(blocked.ok).toBe(false);
+    expect(blocked.text).toContain("clear, dry ground");
+    expect(blocked.world).toBe(w);
+    const wetGround = makeFire(w, withWood({ ...a, pos: map.pool }, 4));
+    expect(wetGround.ok).toBe(false);
+    expect(wetGround.world).toBe(w);
+
+    const pos = recoverWalkPosition(walkMapOf(w), overlap)!;
+    const ready = withWood({ ...a, pos, skills: { fire_making: 100 } }, 4);
+    const attempts = Array.from({ length: 16 }, (_, t) => makeFire({ ...w, t }, ready));
+    const result = attempts.find((r) => r.ok)!;
+    const fire = result.world.fires.find((f) => !f.hearth)!;
+    const { campRadius, campTreeClearance } = WORLD_CONFIG.fire;
+    expect(result.text).toContain("on the clear ground beside you");
+    expect(result.actor.pos).toEqual(pos);
+    expect(dist(pos, fire)).toBeGreaterThan(campRadius + WORLD_CONFIG.walk.radius);
+    expect(dist(pos, fire)).toBeLessThanOrEqual(WORLD_CONFIG.reach);
+    expect(dist(tree, fire)).toBeGreaterThan(campTreeClearance);
+    expect(dist(map.pool, fire)).toBeGreaterThan(map.pool.radius + campRadius);
+    expect(dist(nearestOnPolyline(fire, map.river), fire)).toBeGreaterThan(
+      map.riverWidth / 2 + campRadius,
+    );
+    expect(
+      walkObstacles(map, WORLD_CONFIG, campRadius).some((o) => hitsWalkObstacle(o, fire, fire)),
+    ).toBe(false);
+  });
+
+  test("a burning hearth cannot be tended or felt outside the cabin wall", () => {
+    const { w, a } = start();
+    const burning = { ...w, fires: [{ ...w.fires[0]!, fuel: 60 }] };
+    const outside = { x: 3.2, z: 0.7 };
+    expect(tendFire(burning, withWood({ ...a, pos: outside }, 2)).ok).toBe(false);
+    expect(environmentAt(burning, outside).fire_heat_c).toBe(0);
+  });
+
+  test("the doorstep stays clear and a campfire farther into the yard leaves the entrance passable", () => {
+    const { w, a } = start(1);
+    const map = generateMap(w.seed);
+    const doorstep = { x: 0, z: 2.11 };
+    const actor = withWood({ ...a, pos: doorstep, skills: { fire_making: 100 } }, 10);
+    const blocked = makeFire(w, actor);
+    expect(blocked.text).toContain("clear, dry ground");
+    expect(blocked.world).toBe(w);
+    const result = makeFire(w, { ...actor, pos: { x: 0, z: 3.5 } });
+    expect(result.ok, result.text).toBe(true);
+    const withFire = walkMapOf(result.world);
+    const yard = map.waypoints["yard"]!;
+    expect(clearWalkSegment(withFire, map.stations.door, yard)).toBe(true);
+    const entry = planWalk(withFire, yard, "bed");
+    expect(entry.reached).toBe(true);
+    expect(planWalk(withFire, entry.points.at(-1)!, "yard").reached).toBe(true);
+  });
+
   test("boil water and cook need fire and pot", () => {
     const { w, a } = start();
     const m = generateMap(11);
@@ -272,10 +335,38 @@ describe("fire", () => {
     expect(invCount(c.actor.inventory, "cooked_roots")).toBe(1);
     expect(cook(fire, at, "dried food").ok).toBe(false);
     expect(cook(w, withRoots, "roots").ok).toBe(false);
+    const almostOut = { ...fire, fires: [{ ...fire.fires[0]!, fuel: 1 }] };
+    expect(cook(almostOut, withRoots, "roots").world.fires[0]).toMatchObject({
+      fuel: 0,
+      outAt: w.t,
+    });
   });
 });
 
 describe("wear, shelter, rest", () => {
+  test("resting near the live tree finds a lying direction that clears the trunk", () => {
+    const w = createWorld(2489842540);
+    const tree = w.nodes.find((n) => n.id === "tree_17")!;
+    const overlap = { x: tree.x, z: tree.z };
+    expect(restSpot(w, overlap)).toMatchObject({ shelter: "canopy", clear: false });
+    expect(restHeading(w, { ...overlap, heading: 0 })).toBeUndefined();
+    const p = recoverWalkPosition(walkMapOf(w), overlap)!;
+    const facingTree = Math.atan2(tree.x - p.x, tree.z - p.z);
+    const heading = restHeading(w, { ...p, heading: facingTree });
+    expect(heading).toBeDefined();
+    expect(heading).not.toBe(facingTree);
+    expect(restSpot(w, p)).toMatchObject({ shelter: "canopy", clear: true, on_bed: false });
+    const axis = polar(heading!, WORLD_CONFIG.shelter.restHalfLength);
+    const head = { x: p.x - axis.x, z: p.z - axis.z };
+    const feet = { x: p.x + axis.x, z: p.z + axis.z };
+    expect(dist(tree, nearestOnSegment(tree, head, feet))).toBeGreaterThan(
+      WORLD_CONFIG.map.treeTrunkRadius + WORLD_CONFIG.walk.radius,
+    );
+    const { bed } = generateMap(w.seed).stations;
+    const bedside = recoverWalkPosition(walkMapOf(w), bed)!;
+    expect(restSpot(w, bedside)).toMatchObject({ shelter: "cabin", clear: true, on_bed: true });
+    expect(restSpot(w, { x: 3.15, z: bed.z }).on_bed).toBe(false);
+  });
   test("wearing the blanket raises insulation; removing lowers it", () => {
     const { w, a } = start();
     const on = wear(w, a, "blanket");

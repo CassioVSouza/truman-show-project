@@ -1,7 +1,7 @@
-// CPU proxy for the Workers Free 10 ms limit. Node wall time of a fully in-memory tick (no network waits, so wall
-// is close to CPU). The real figure comes from `wrangler dev` / deployed analytics. The SimDb JSON round trip of
-// the whole mind is included on purpose: the real Db pays it too (response parse and payload stringify).
+// CPU proxy for Workers Free using a fully in-memory tick. Production CPU comes
+// from deployed analytics. SimDb includes the cost of parsing and serializing state.
 import { expect, test } from "vitest";
+import { DEFAULT_GOVERNOR } from "../governor";
 import { LogWriter } from "../log";
 import { MemoryRows } from "./memory-log";
 import { runMindTick } from "./pipeline";
@@ -11,9 +11,11 @@ test("a steady-state tick stays under the 10 ms CPU budget (proxy)", async () =>
   const db = new SimDb();
   const agent = makeAgent(db);
   const start = Date.parse("2026-03-01T06:30:00Z");
+  const ticksPerDay = 1440 / DEFAULT_GOVERNOR.tickMinutes;
   const tick = async (k: number) => {
-    const t = new Date(start + k * 600000);
-    const t0 = performance.now();
+    const t = new Date(start + k * DEFAULT_GOVERNOR.tickMinutes * 60_000);
+    // Count compute in this Vitest process independently of other suites running in parallel.
+    const t0 = process.cpuUsage();
     const r = await runMindTick({
       db,
       log: new LogWriter(),
@@ -21,13 +23,14 @@ test("a steady-state tick stays under the 10 ms CPU budget (proxy)", async () =>
       providers: [agent],
       now: () => t,
     });
-    return { ms: performance.now() - t0, step: r.step };
+    const cpu = process.cpuUsage(t0);
+    return { ms: (cpu.user + cpu.system) / 1_000, step: r.step };
   };
   let k = 0;
-  for (; k < 144; k++) await tick(k); // a lived-in state, not genesis
+  for (; k < ticksPerDay; k++) await tick(k); // a lived-in state, not genesis
   const decided: number[] = [];
   const quiet: number[] = [];
-  for (let i = 0; i < 288; i++) {
+  for (let i = 0; i < ticksPerDay; i++) {
     const r = await tick(k++);
     (r.step === "decided" ? decided : quiet).push(r.ms);
   }

@@ -7,8 +7,12 @@ type Box = { kind: "box"; center: Vec; half: Vec };
 type Circle = { kind: "circle"; center: Vec; radius: number };
 export type WalkObstacle = Box | Circle;
 
-export function walkObstacles(map: WorldMap, cfg: WorldConfig): WalkObstacle[] {
-  const { radius, nodeRadii, hearthRadius, springRadius, cabin } = cfg.walk;
+export function walkObstacles(
+  map: WorldMap,
+  cfg: WorldConfig,
+  radius = cfg.walk.radius,
+): WalkObstacle[] {
+  const { nodeRadii, hearthRadius, springRadius, cabin } = cfg.walk;
   const { halfW, halfD } = map.cabin;
   const t = cabin.wallHalfThickness;
   const frontHalf = (halfW - cabin.doorHalfOpening) / 2;
@@ -43,6 +47,7 @@ export function walkObstacles(map: WorldMap, cfg: WorldConfig): WalkObstacle[] {
     const r = node.kind === "tree" ? cfg.map.treeTrunkRadius : nodeRadii[node.kind];
     if (r !== undefined) out.push(circle(node, r));
   }
+  for (const fire of map.campfires ?? []) out.push(circle(fire, cfg.fire.campRadius));
   return out;
 }
 

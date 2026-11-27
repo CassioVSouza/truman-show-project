@@ -12,7 +12,7 @@ import { burn, burnRate, fireHeat, fireState } from "./fire";
 import { nextHourT } from "./items";
 import { dist, generateMap, insideCabin, nearestOnPolyline, type WorldMap } from "./map";
 import { regrowStep, seedNodes } from "./resources";
-import type { Fire, Vec, WorldState } from "./types";
+import type { Fire, FireState, Vec, WorldState } from "./types";
 
 export function createWorld(
   seed: number,
@@ -47,6 +47,21 @@ export function createWorld(
 
 export const mapOf = (w: WorldState, cfg: WorldConfig = WORLD_CONFIG): WorldMap =>
   generateMap(w.seed, cfg);
+
+const walkMaps = new WeakMap<WorldMap, { positions: string; map: WorldMap }>();
+
+/** Static obstacles plus the outdoor fire rings currently on the ground. */
+export function walkMapOf(w: WorldState, cfg: WorldConfig = WORLD_CONFIG): WorldMap {
+  const map = mapOf(w, cfg);
+  const campfires = w.fires.filter((fire) => !fire.hearth);
+  if (campfires.length === 0) return map;
+  const positions = campfires.map((fire) => `${fire.x},${fire.z}`).join(";");
+  const cached = walkMaps.get(map);
+  if (cached?.positions === positions) return cached.map;
+  const walkMap = { ...map, campfires };
+  walkMaps.set(map, { positions, map: walkMap });
+  return walkMap;
+}
 
 /**
  * Advance the world to minute `toT`. Work happens at clock-hour boundaries (regrowth, shelter wear,
@@ -84,6 +99,35 @@ export function advance(w: WorldState, toT: number, cfg: WorldConfig = WORLD_CON
   return { ...w, t: toT, nodes, fires, cabinIntegrity };
 }
 
+/** Predict visual state changes using the same weather and fuel burn as world advancement. */
+export function fireTimeline(
+  w: WorldState,
+  until: number,
+  cfg: WorldConfig = WORLD_CONFIG,
+): Array<{ t: number; fire: Fire; state: FireState }> {
+  const changes: Array<{ t: number; fire: Fire; state: FireState }> = [];
+  for (const initial of w.fires) {
+    let fire = initial;
+    for (let from = w.t; from < until && fire.fuel > 0;) {
+      const end = Math.min(nextHourT(w, from), until);
+      const wx = weatherAt(w, from, cfg);
+      const rate = burnRate(fire, wx.precip, wx.kind === "rain" || wx.kind === "snow", cfg);
+      const after = burn(fire, from, end, rate);
+      const dyingAt = from + (fire.fuel - cfg.fire.dyingBelow) / rate;
+      const matureAt = fire.litAt + cfg.fire.litMinutes;
+      if (matureAt > from && matureAt <= end && matureAt < dyingAt)
+        changes.push({ t: matureAt, fire: burn(fire, from, matureAt, rate), state: "burning" });
+      if (cfg.fire.dyingBelow > 0 && dyingAt > from && dyingAt <= end)
+        changes.push({ t: dyingAt, fire: burn(fire, from, dyingAt, rate), state: "dying" });
+      if (after.fuel <= 0 && after.outAt !== null)
+        changes.push({ t: after.outAt, fire: after, state: "out" });
+      fire = after;
+      from = end;
+    }
+  }
+  return changes.sort((a, b) => a.t - b.t || a.fire.id - b.fire.id);
+}
+
 export function shelterAt(
   w: WorldState,
   p: Vec,
@@ -93,7 +137,7 @@ export function shelterAt(
   const s = cfg.shelter;
   if (insideCabin(map, p)) return { kind: "cabin", quality: s.cabinQuality * w.cabinIntegrity };
   for (const n of w.nodes) {
-    if (n.kind === "tree" && dist(n, p) <= s.canopyRadius)
+    if ((n.kind === "tree" || n.kind === "fruit_tree") && dist(n, p) <= s.canopyRadius)
       return { kind: "canopy", quality: s.canopyQuality };
   }
   return { kind: "open", quality: 0 };
@@ -110,12 +154,13 @@ export function environmentAt(w: WorldState, p: Vec, cfg: WorldConfig = WORLD_CO
   if (sh.kind === "cabin") {
     ambient = out + (cfg.temp.cabinMean - out) * cfg.temp.cabinBuffer * w.cabinIntegrity;
   }
-  const fh = fireHeat(w.fires, p, w.t, cfg);
+  const room = sh.kind === "cabin";
+  const localFires = w.fires.filter((fire) => fire.indoors === room);
+  const fh = fireHeat(localFires, p, w.t, cfg);
   let heat = fh.heat;
   if (sh.kind === "cabin") {
-    for (const f of w.fires) {
-      if (f.indoors) heat += cfg.fire.roomHeat * cfg.fire.stateFactor[fireState(f, w.t, cfg)];
-    }
+    for (const f of localFires)
+      heat += cfg.fire.roomHeat * cfg.fire.stateFactor[fireState(f, w.t, cfg)];
   }
   const damp = wx.kind === "fog" ? 0.1 : 0;
   const near = cfg.nearRadius;

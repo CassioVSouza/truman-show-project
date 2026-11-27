@@ -1,3 +1,5 @@
+import { DEFAULT_TICK_MINUTES } from "@truman/contracts";
+
 export const EN = {
   // Brand & chrome
   appTitle: "The Truman Show Project",
@@ -40,10 +42,10 @@ export const EN = {
   seasonLabel: "Season",
   weatherLabel: "Weather",
   phaseLabel: "Phase",
-  decisionCadenceNotice: "The Resident makes decisions every 10 minutes.",
+  decisionCadenceNotice: `The Resident makes decisions every ${DEFAULT_TICK_MINUTES} minutes.`,
   nextDecisionIn: "Next decision",
   nextDecisionDue: "Decision due",
-  nextDecisionCadence: "10m cycle",
+  nextDecisionCadence: `${DEFAULT_TICK_MINUTES}m cycle`,
   nextDecisionPaused: "Paused",
   sidebarCollapse: "Collapse vitals panel",
   sidebarExpand: "Expand vitals panel",

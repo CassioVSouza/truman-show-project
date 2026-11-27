@@ -2,11 +2,11 @@
 
 **A persistent AI "Resident" that lives in a low-poly 3D cabin, learns through its senses and the open web, and has a hidden embodied emotional life. Anyone can watch it live and search everything it thought and did. Nobody can interact with it.**
 
-> **Status (work in progress).** Built and tested locally: Phase 0 (monorepo, contracts, Supabase schema, Worker skeleton, CI), Phase 1A (world, body and organism engines, 14-day policy simulation), and Phase 1B Waves 1–2 (LLM fallback, tick pipeline, memory, web tools, logs, read-only API, and 3D viewer). In Wave 3, the static snapshot publisher and viewer integration passed local checks, and a synthetic Cloudflare Pages upload verified the hosting path. Production deployment, the first live run, and the 72-hour unattended test are pending.
+> **Status (work in progress).** The world, body and organism engines, tick pipeline, read-only API, and 3D viewer are deployed. The first Resident is live. The 72-hour unattended test is part of Phase 1B Wave 3.
 
 ## What is it?
 
-A single character wakes up in a cabin with a body (hunger, thirst, temperature, injuries, a life bar), a terminal that reaches the open web, and a memory. Every 10 minutes it decides what to do. A deterministic engine simulates the consequences. The public watches through a 3D viewer and can search every thought, action and journal entry. Death is permanent.
+A single character wakes up in a cabin with a body (hunger, thirst, temperature, injuries, a life bar), a terminal that reaches the open web, and a memory. It can make a decision every three minutes, subject to action duration and the governor. A deterministic engine simulates the consequences. The public watches through a 3D viewer and can search every thought, action and journal entry. Death is permanent.
 
 Core ideas:
 

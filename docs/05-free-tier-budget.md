@@ -38,7 +38,7 @@
 | Need | Service | Notes |
 |---|---|---|
 | Compute + cron + API | Cloudflare Workers + Cron Triggers | Free CPU is 10 ms per invocation (waiting on `fetch` is not CPU). 50 subrequests per invocation, so the tick commits **batched writes: one RPC per tick**. CPU is measured in Phase 0; **fallback: run heavy compute (organism/body catch-up) in a GitHub Actions cron** (5 min minimum, may be delayed) that talks to the DB directly |
-| Database | **Supabase** Postgres (free project) | ~500 MB DB, limited egress, **pauses after ~7 days of inactivity** (the 10-min ticks keep it active). FTS, pg_trgm, pgvector included. Connect from Workers via supabase-js (HTTPS) or Hyperdrive + postgres driver |
+| Database | **Supabase** Postgres (free project) | ~500 MB DB, limited egress, **pauses after ~7 days of inactivity** (scheduled ticks keep it active). FTS, pg_trgm, pgvector included. Connect from Workers via supabase-js (HTTPS) or Hyperdrive + postgres driver |
 | Viewer | Cloudflare Pages | Free CDN; live state comes from published static snapshot files, not the Worker |
 | LLM | Gemini API free tier (primary; owner accepts that free-tier prompts/outputs may be used by Google, decision 22), Groq free tier and Cloudflare Workers AI allowance as fallbacks | Model names and limits change; Provider adapter + fallback |
 | Search / read | Tavily free credits (monthly), Wikipedia API, Jina Reader (rate limited without key) | Ration Tavily |
@@ -46,26 +46,28 @@
 | Translation | Chrome on-device Translator API, Workers AI translation, MyMemory | Cached per entry |
 | CI | GitHub Actions on a public repo | |
 
-## Per-day plan (144 ticks)
-- About half of ticks are rest/idle/journal. Active ticks use 1-2 LLM calls (Resident always, Interpreter only when meaningful).
-- Target <= ~200 LLM calls/day total, <= ~30 searches (Tavily 1,000/month), <= ~100 page fetches. Config defaults: `MAX_LLM_CALLS_DAY=200` (split across providers; Gemini Flash-Lite and Groq 8B each allow more per day than this, but per-model caps are unverified), `MAX_SEARCH_DAY=30`, `MAX_FETCH_DAY=100` (Jina keyless 20 RPM, spread over ticks), `TICK_MINUTES=10`, `TIME_SCALE=4` (4 world days per real day, 40 world min per 10 real-min tick; decision ticks stay 10 real min, same LLM budget), `MAX_EARLY_TICKS_DAY=12`.
+## Per-day plan (480 scheduled ticks)
+
+- An active decision uses one Resident call and may use an Interpreter call for a meaningful outcome.
+- Defaults are `MAX_LLM_CALLS_DAY=200`, `MAX_SEARCH_DAY=30` (Tavily 1,000/month), `MAX_FETCH_DAY=100`, `TICK_MINUTES=3`, `TIME_SCALE=4` (12 world minutes per three real minutes), and `MAX_EARLY_TICKS_DAY=12`. Providers apply their own quotas independently.
+- The governor makes a small share of the daily LLM budget available at midnight UTC and releases the rest throughout the day. Unused calls carry forward until midnight. This reserves opportunities to decide later in the day.
 - Organism step, sensation templating, atlas labeling, perception and logging are plain code: zero API cost.
 
 ## Survival adds ticks and calls
 - Body/world catch-up is pure code at minute resolution (no API cost, but CPU: batch it, loops over elapsed minutes must stay within Worker CPU limits; long gaps use closed-form or coarse steps).
 - **Early-wake ticks** for emergencies add calls: cap with `MAX_EARLY_TICKS_DAY` (default 12). Past the cap, reflexes and safe macro-action continuation handle the emergency.
-- Long macro-actions (rest 4 h, gather 30 min) mean several 10-minute slots need no LLM call; actual decision rate is lower than 144/day.
+- Long macro-actions, such as four hours of rest, span multiple ticks. Those continuing ticks require no Resident call, and the daily LLM cap limits the number of decisions even when all 480 slots are available.
 - Because survival actions are frequent, the Interpreter call is skipped for routine ones (eating, drinking, tending fire) via rule tables.
 
 ## Governor modes (picked each tick)
 | Mode | Trigger | Behaviour |
 |---|---|---|
 | `normal` | < 70% of any budget | Full pipeline |
-| `thrifty` | 70-90% | Interval x2, Interpreter replaced by rule tables, no extra dream call |
+| `thrifty` | 70% of an active budget or temporarily out of paced LLM allowance | Interval x2, Interpreter replaced by rule tables, no extra dream call. A tick without available allowance continues without an LLM call |
 | `reading_only` | search budget out | No `web_search`; re-read known pages, think, write |
 | `idle` | LLM budget out or all providers failing | Engine-only life (pacing, sleeping); body still evolves; `status: degraded` |
 | `hibernating` | admin kill / hard failures | Resident in bed, banner shown |
-The 10-minute pace is kept whenever the budget allows; slowing happens only under quota pressure.
+The normal decision interval is three minutes. Thrifty mode doubles the interval to six minutes, and idle mode stops model calls when the budget runs out.
 
 ## Database growth ("log everything" vs 500 MB)
 - LLM traces ~3 MB/day: keep 14 days full in Postgres, then archive to a GitHub Release as compressed JSONL, leaving a stub row (hash, tokens, `archived_ref` = release asset URL). A scheduled GitHub Action pulls data via a read-only DB role, uploads, then calls the Worker to confirm and prune.
@@ -77,9 +79,11 @@ The 10-minute pace is kept whenever the budget allows; slowing happens only unde
 ## Spectator and search scaling
 Decisions 22, 23 and 36 place `live.json` on a dedicated Cloudflare Pages Direct Upload project. The viewer fetches the bundle and interpolates the timeline locally. Search, log pages, context and Lab stay on the Worker with edge caching and rate limits.
 
-Cloudflare documents 500 Git builds per month on Free and treats Direct Upload as deployment of prebuilt assets. The Pages limits document deployment retention separately. See [Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/) and [Pages limits](https://developers.cloudflare.com/pages/platform/limits/).
+Cloudflare details 500 Git builds per month on Free and describes Direct Upload as deployment of prebuilt assets. The Pages overview describes a 500-deployment monthly limit. The official documentation leaves the scope of Direct Upload quotas unclear. [Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/) · [Pages limits](https://developers.cloudflare.com/pages/platform/limits/) · [Pages overview](https://developers.cloudflare.com/pages/)
 
-Two synthetic Direct Uploads succeeded on 2026-11-26. The second replaced the first at the stable public URL, with cross-origin reads and a 30-second cache lifetime. Each upload used four Cloudflare API calls. A sustained run at 144 scheduled updates per day has yet to be verified. Track publication errors and CDN freshness during the 72 h soak. GitHub-hosted files remain the fallback (decision 23).
+Two synthetic Direct Uploads succeeded on 2026-11-26. The second replaced the first at the stable public URL, with cross-origin reads and a 30-second cache lifetime. Each upload used four Cloudflare API calls. The three-minute schedule can attempt 480 uploads per day. Track publication errors and CDN freshness at that cadence during the 72-hour soak. GitHub-hosted files remain the fallback (decision 23).
+
+The general API and Workers request limits allow the planned request cadence. Four API calls per upload amount to eight calls across two scheduled ticks in five minutes. Cloudflare publishes a general API limit of 1,200 requests per five minutes per user or account token, and Workers Free allows 100,000 requests per day and 10 ms of CPU per scheduled invocation. Compare committed tick IDs with published snapshot sequences during the soak to detect stalled publication, and measure live CPU. [Cloudflare API limits](https://developers.cloudflare.com/fundamentals/api/reference/limits/) · [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
 ## Measured on Cloudflare (2026-11-26, real crons)
 Worker `truman-worker`, Free plan, cron `*/10 * * * *`, version d573ce03 (preview_urls=false). Source: `wrangler tail --format json` plus `ticks` rows read via `supabase db query --read-only`.

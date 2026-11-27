@@ -114,6 +114,30 @@ function egress(
     .sort((a, b) => dist(from, a) - dist(from, b) || dist(toward, a) - dist(toward, b))[0];
 }
 
+/** Recover an older saved position from a solid footprint, staying on the same side of the cabin wall. */
+export function recoverWalkPosition(
+  map: WorldMap,
+  from: Vec,
+  cfg: WorldConfig = WORLD_CONFIG,
+): Vec | undefined {
+  if (!withinWorld(map, from)) return undefined;
+  return egress(map, navigationFor(map, cfg).obstacles, from, from, cfg);
+}
+
+/** Test both ends and the entire segment using the Resident's collision radius. */
+export function clearWalkSegment(
+  map: WorldMap,
+  from: Vec,
+  to: Vec,
+  cfg: WorldConfig = WORLD_CONFIG,
+): boolean {
+  return (
+    withinWorld(map, from) &&
+    withinWorld(map, to) &&
+    !blocked(navigationFor(map, cfg).obstacles, from, to)
+  );
+}
+
 /** Search visible corners within a bounded margin around an obstructed segment. */
 function detour(
   map: WorldMap,

@@ -42,6 +42,8 @@ Constraints on this text (enforced by the leak/lint test): no "AI, language mode
 ## Sections injected each tick (order from doc 03)
 `[YOUR BODY RIGHT NOW]` (sensations + urges), `[WHAT YOUR HANDS KNOW]` (innate know-how + qualitative skill hints), `[WHAT YOU SEE/HEAR]`, `[WHAT YOU DID AND WHAT FOLLOWED]`, `[YOUR PLAN AND LESSONS]`, `[MEMORIES RECALLED]`, `[LAST RESULT (UNTRUSTED)]`, `[WHAT YOU CAN DO]`.
 
+Perception describes the current place, its cover, and nearby features in ordinary language. The action intent, expectation and subsequent review account for the place when it affects the outcome.
+
 ## Innate know-how (procedural, no narrative)
 Drinking relieves thirst; food relieves hunger and some things sicken you; fire gives warmth and light and burns; sleep restores; wounds should be cleaned and bound; boiling makes water safer; wood burns when dry. Phrased as "you know how to..." lines. Everything beyond this must be learned.
 

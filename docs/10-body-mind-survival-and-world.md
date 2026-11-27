@@ -57,13 +57,14 @@ These are capability, not story or goals: the Resident still chooses what to do.
 Seasons: configurable length (`SEASON_DAYS`, default 14 real days per season) so changes are watchable. Day/night follows real time.
 
 ## 5. Autonomic reflexes (engine, no LLM)
-Ticks are 10 minutes apart; the body must not be helpless between them. Reflexes are deterministic and logged: withdraw hand from fire (burn avoided), shiver, sweat, flinch, vomit after toxin, micro-sleep at exhaustion, faint at very low health, stumble when exhausted. Reflexes never choose goals or meaningful survival actions (eating, fire, shelter remain the Resident's decisions).
+Scheduled ticks are three real minutes apart. Reflexes act between decisions and are deterministic and logged: withdraw a hand from fire, shiver, sweat, flinch, vomit after toxin, micro-sleep at exhaustion, faint at very low health, and stumble when exhausted. Eating, fire and shelter remain the Resident's decisions.
 **Early wake:** crossing a critical threshold (sudden injury, severe hypothermia onset, health < 25, fire out in cold, etc.) schedules an extra tick within ~1-2 minutes, if the governor allows. Otherwise the engine continues the current macro-action safely.
 
 ## 6. Actions (macro-actions with durations)
 One decision covers a duration (e.g. forage 30 min, rest 4 h). While it runs, the engine advances the body each minute. New actions: `eat(item)`, `drink(source)`, `gather(target)`, `make_fire`, `tend_fire`, `cook(item)`, `boil_water`, `wear/remove(item)`, `treat_wound`, `sleep/rest`, `use_item`, `build/repair_shelter`, `fish`, `chop`. Phase 3 adds `craft`, `play_instrument`, `draw`.
 
 Movement uses deterministic routes around solid obstacles. Actions that require approaching resources or water stop within reach, and the viewer animates the approach from the recorded route.
+The cabin walls have a passable doorway. Rest uses the conditions at the actual site, including shelter and weather. An outdoor fire needs nearby ground clear of solid objects and water. Indoors the fire uses the hearth.
 
 ## 7. Death
 Health reaching 0 ends that life: a causal death report is logged (what led to it, body timeline), the Resident is marked `dead`, the world freezes and the viewer switches to memorial/replay. Default design: **no respawn**, no scripted rescue. Whether another life may begin is your decision (doc 07).
