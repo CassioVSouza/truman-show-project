@@ -14,6 +14,9 @@ describe("viewer i18n", () => {
   });
 
   it("resolves labels and API lang codes", () => {
+    expect(t("en", "appTitle")).toBe("The Truman Show Project");
+    expect(t("pt-BR", "appTitle")).toBe("The Truman Show Project");
+    expect("readOnlyBadge" in EN).toBe(false);
     expect(t("en", "sectionLab")).toBe("Lab");
     expect(t("pt-BR", "navJournal")).toBe("Diário");
     expect(toApiLang("en")).toBe("en");

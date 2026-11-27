@@ -11,9 +11,19 @@ import {
   type TimelineState,
 } from "./state/timeline";
 import { clear, el, formatDateTime } from "./ui/dom";
+import {
+  computeVitalTrends,
+  extractRecentActivity,
+  FLAT_VITAL_TRENDS,
+  formatDecisionCountdown,
+  formatWorldChip,
+  resolveShortcut,
+  type VitalsSnapshot,
+  type VitalTrends,
+} from "./ui/hudHelpers";
 import { renderLabTab, type LabTab } from "./ui/labViews";
 import { renderLifeTab, type LifeTab } from "./ui/lifeViews";
-import { openContextModal, renderSearchPanel, runSearch } from "./ui/searchAndContext";
+import { openContextModal, renderSearchPalette, runSearch } from "./ui/searchAndContext";
 import { renderTimelineBar } from "./ui/timelineBar";
 import { renderVitalsHud } from "./ui/vitalsHud";
 
@@ -29,8 +39,14 @@ class ViewerApp {
   private lifeTab: LifeTab = "live";
   private labTab: LabTab = "organism";
   private popupOpen = false;
+  private cinemaMode = false;
+  private sidebarCollapsed = false;
+  private mobileHudExpanded = false;
+  private recentCollapsed = false;
 
   private snapshot: Snapshot | null = null;
+  private prevVitals: VitalsSnapshot | null = null;
+  private vitalTrends: VitalTrends = FLAT_VITAL_TRENDS;
   private events: Event[] = [];
   private status: StatusPayload | null = null;
   private feedState: SnapshotFeedResult["state"] | "loading" = "loading";
@@ -39,8 +55,9 @@ class ViewerApp {
   private isPlaying = true;
   private speedIdx = 0;
   private playheadMs = Date.now();
-  private cameraMode: CameraMode = "cabin";
+  private cameraMode: CameraMode = "follow";
 
+  private searchOpen = false;
   private searchQuery = "";
   private searchCategory: "all" | "life" | "lab" = "all";
   private searchResponse: SearchResponse | null = null;
@@ -49,6 +66,8 @@ class ViewerApp {
   private sceneInitialized = false;
   private renderedThought = "";
   private renderedAction = "";
+  private renderedRecent = "";
+  private renderedStatusChips = "";
 
   // Mounted containers
   private readonly root: HTMLElement;
@@ -57,12 +76,14 @@ class ViewerApp {
   private feedBadgeEl!: HTMLElement;
   private statusStripEl!: HTMLElement;
   private feedNoticeEl!: HTMLElement;
-  private searchDrawerEl!: HTMLElement;
+  private searchPaletteEl!: HTMLElement;
   private mainAreaEl!: HTMLElement;
   private liveGridEl!: HTMLElement;
   private canvasHostEl!: HTMLElement;
   private thoughtOverlayEl!: HTMLElement;
   private nowDoingOverlayEl!: HTMLElement;
+  private recentFeedEl!: HTMLElement;
+  private cinemaExitEl!: HTMLElement;
   private hudSidebarEl!: HTMLElement;
   private timelineBarEl!: HTMLElement;
   private tabPopupBackdropEl!: HTMLElement;
@@ -110,29 +131,104 @@ class ViewerApp {
   private renderViewers(): void {
     this.viewersEl.hidden = this.viewerCount === null;
     if (this.viewerCount !== null) {
-      this.viewersEl.textContent = `● ${this.viewerCount} ${t(this.lang, "viewersWatching")}`;
+      clear(this.viewersEl);
+      const dot = el("span", { class: "badge-viewers-dot" });
+      dot.setAttribute("aria-hidden", "true");
+      this.viewersEl.append(
+        dot,
+        el("span", { class: "badge-viewers-count" }, String(this.viewerCount)),
+        el("span", { class: "badge-viewers-label" }, t(this.lang, "viewersWatching")),
+      );
     }
   }
 
   private bindGlobalKeys(): void {
     window.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-      if (!this.contextModalEl.hidden) {
-        this.contextModalEl.hidden = true;
-        clear(this.contextModalEl);
+      const target = e.target as HTMLElement | null;
+      const action = resolveShortcut({
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        target,
+      });
+      if (!action) return;
+
+      if (action === "escape") {
+        if (!this.contextModalEl.hidden) {
+          this.contextModalEl.hidden = true;
+          clear(this.contextModalEl);
+          return;
+        }
+        if (this.searchOpen) {
+          this.closeSearchPalette();
+          return;
+        }
+        if (this.popupOpen) {
+          this.closePopup();
+          return;
+        }
+        if (this.cinemaMode) {
+          this.setCinemaMode(false);
+        }
         return;
       }
-      if (this.popupOpen) {
-        this.closePopup();
+
+      if (action === "search") {
+        e.preventDefault();
+        this.openSearchPalette();
         return;
       }
-      if (!this.searchDrawerEl.hidden) {
-        this.searchQuery = "";
-        this.searchResponse = null;
-        this.searchDrawerEl.hidden = true;
-        this.renderChrome();
+
+      // Remaining shortcuts only apply when modals/popups aren't blocking
+      if (!this.contextModalEl.hidden || this.searchOpen || this.popupOpen) return;
+
+      switch (action) {
+        case "camera-follow":
+          this.setCameraMode("follow");
+          break;
+        case "camera-cabin":
+          this.setCameraMode("cabin");
+          break;
+        case "camera-world":
+          this.setCameraMode("world");
+          break;
+        case "toggle-play":
+          if (this.snapshot) {
+            e.preventDefault();
+            this.isPlaying = !this.isPlaying;
+            if (!this.isPlaying) this.isLive = false;
+            this.renderFrame();
+          }
+          break;
+        case "toggle-cinema":
+          this.setCinemaMode(!this.cinemaMode);
+          break;
       }
     });
+  }
+
+  private setCameraMode(mode: CameraMode): void {
+    this.cameraMode = mode;
+    this.worldScene?.setCameraMode(mode);
+    this.renderChrome();
+  }
+
+  private setCinemaMode(enabled: boolean): void {
+    this.cinemaMode = enabled;
+    this.root.classList.toggle("is-cinema-mode", enabled);
+    this.cinemaExitEl.hidden = !enabled;
+    this.renderChrome();
+  }
+
+  private openSearchPalette(): void {
+    this.searchOpen = true;
+    this.renderSearch(true);
+  }
+
+  private closeSearchPalette(): void {
+    this.searchOpen = false;
+    this.renderSearch(false);
   }
 
   private mountShell(): void {
@@ -143,12 +239,30 @@ class ViewerApp {
     this.feedBadgeEl = el("span", { class: "badge", role: "status" });
     this.statusStripEl = el("div", { class: "status-strip" });
     this.feedNoticeEl = el("p", { class: "feed-notice" });
-    this.searchDrawerEl = el("section", { class: "search-drawer" });
-    this.searchDrawerEl.hidden = true;
+
+    this.searchPaletteEl = el("div", { class: "search-palette-backdrop" });
+    this.searchPaletteEl.hidden = true;
+    this.searchPaletteEl.addEventListener("click", (e) => {
+      if (e.target === this.searchPaletteEl) {
+        this.closeSearchPalette();
+      }
+    });
 
     this.canvasHostEl = el("div", { class: "canvas-host" });
     this.thoughtOverlayEl = el("div", { class: "thought-bubble" });
     this.nowDoingOverlayEl = el("div", { class: "now-doing-pill" });
+    this.recentFeedEl = el("div", { class: "recent-feed" });
+
+    this.cinemaExitEl = el(
+      "button",
+      {
+        type: "button",
+        class: "cinema-exit-btn",
+        onClick: () => this.setCinemaMode(false),
+      },
+      `${t(this.lang, "cinemaExit")} (H)`,
+    );
+    this.cinemaExitEl.hidden = true;
 
     const stageWrap = el(
       "div",
@@ -161,7 +275,8 @@ class ViewerApp {
         this.thoughtOverlayEl,
         el("div", { class: "camera-controls", id: "camera-controls" }),
       ),
-      el("div", { class: "stage-overlay-bottom" }, this.nowDoingOverlayEl),
+      el("div", { class: "stage-overlay-bottom" }, this.recentFeedEl, this.nowDoingOverlayEl),
+      this.cinemaExitEl,
     );
 
     this.hudSidebarEl = el("aside", { class: "hud-sidebar" });
@@ -198,10 +313,10 @@ class ViewerApp {
     this.root.append(
       this.topbarEl,
       this.subnavEl,
-      this.searchDrawerEl,
       this.mainAreaEl,
       this.timelineBarEl,
       this.tabPopupBackdropEl,
+      this.searchPaletteEl,
       this.contextModalEl,
     );
 
@@ -229,10 +344,17 @@ class ViewerApp {
     try {
       const feed = await this.api.fetchSnapshotFeed();
       const wasDemo = this.feedState === "demo";
+      if (this.snapshot && feed.snapshot && feed.snapshot.seq !== this.snapshot.seq) {
+        this.prevVitals = { ...this.snapshot.resident.vitals };
+      }
       this.snapshot = feed.snapshot;
+      if (this.snapshot) {
+        this.vitalTrends = computeVitalTrends(this.prevVitals, this.snapshot.resident.vitals);
+      }
       this.events = feed.events;
       this.status = feed.status;
       this.feedState = feed.state;
+      this.renderedStatusChips = "";
       this.renderFeedStatus();
 
       if (this.snapshot) {
@@ -284,29 +406,37 @@ class ViewerApp {
 
   private renderChrome(): void {
     this.root.classList.toggle("is-lab-mode", this.section === "lab");
+    this.liveGridEl.classList.toggle("is-sidebar-collapsed", this.sidebarCollapsed);
+    this.cinemaExitEl.textContent = `${t(this.lang, "cinemaExit")} (H)`;
 
     // Topbar
     clear(this.topbarEl);
-    const searchInput = el("input", {
-      type: "search",
-      class: "search-input",
-      placeholder: t(this.lang, "searchPlaceholder"),
-      value: this.searchQuery,
-      "aria-label": t(this.lang, "searchButton"),
-    });
 
-    const searchForm = el(
-      "form",
+    const searchTrigger = el(
+      "button",
       {
-        class: "search-form",
-        onSubmit: (e) => {
-          e.preventDefault();
-          this.searchQuery = searchInput.value.trim();
-          void this.executeSearch();
-        },
+        type: "button",
+        class: "search-trigger",
+        title: `${t(this.lang, "searchButton")} (/)`,
+        "aria-label": t(this.lang, "searchButton"),
+        onClick: () => this.openSearchPalette(),
       },
-      searchInput,
-      el("button", { type: "submit", class: "pill-btn" }, t(this.lang, "searchButton")),
+      el("span", { class: "search-trigger-icon" }, "⌕"),
+      el("span", { class: "search-trigger-label" }, t(this.lang, "searchButton")),
+      el("kbd", { class: "kbd-hint" }, "/"),
+    );
+
+    const cinemaBtn = el(
+      "button",
+      {
+        type: "button",
+        class: `pill-btn cinema-toggle-btn${this.cinemaMode ? " is-active" : ""}`,
+        title: `${t(this.lang, "cinemaEnter")} (H)`,
+        onClick: () => this.setCinemaMode(!this.cinemaMode),
+      },
+      t(this.lang, "cinemaEnter"),
+      " ",
+      el("kbd", { class: "kbd-hint" }, "H"),
     );
 
     this.topbarEl.append(
@@ -314,7 +444,6 @@ class ViewerApp {
         "div",
         { class: "brand" },
         el("span", null, t(this.lang, "appTitle")),
-        el("span", { class: "badge" }, t(this.lang, "readOnlyBadge")),
         this.feedBadgeEl,
         this.viewersEl,
       ),
@@ -340,27 +469,32 @@ class ViewerApp {
           t(this.lang, "sectionLab"),
         ),
       ),
-      searchForm,
       el(
         "div",
-        { class: "lang-switch" },
+        { class: "topbar-actions" },
+        searchTrigger,
+        cinemaBtn,
         el(
-          "button",
-          {
-            type: "button",
-            class: `pill-btn${this.lang === "en" ? " is-active" : ""}`,
-            onClick: () => this.setLang("en"),
-          },
-          "EN",
-        ),
-        el(
-          "button",
-          {
-            type: "button",
-            class: `pill-btn${this.lang === "pt-BR" ? " is-active" : ""}`,
-            onClick: () => this.setLang("pt-BR"),
-          },
-          "PT-BR",
+          "div",
+          { class: "lang-switch" },
+          el(
+            "button",
+            {
+              type: "button",
+              class: `pill-btn${this.lang === "en" ? " is-active" : ""}`,
+              onClick: () => this.setLang("en"),
+            },
+            "EN",
+          ),
+          el(
+            "button",
+            {
+              type: "button",
+              class: `pill-btn${this.lang === "pt-BR" ? " is-active" : ""}`,
+              onClick: () => this.setLang("pt-BR"),
+            },
+            "PT-BR",
+          ),
         ),
       ),
     );
@@ -420,28 +554,26 @@ class ViewerApp {
 
     this.subnavEl.append(tabsEl, this.statusStripEl);
     this.renderFeedStatus();
+    this.renderViewers();
 
     // Camera buttons overlay
     const camBox = document.getElementById("camera-controls");
     if (camBox) {
       clear(camBox);
-      const cams: Array<[CameraMode, string]> = [
-        ["cabin", t(this.lang, "cameraCabin")],
-        ["follow", t(this.lang, "cameraFollow")],
-        ["world", t(this.lang, "cameraWorld")],
+      const cams: Array<[CameraMode, string, string]> = [
+        ["follow", t(this.lang, "cameraFollow"), "1"],
+        ["cabin", t(this.lang, "cameraCabin"), "2"],
+        ["world", t(this.lang, "cameraWorld"), "3"],
       ];
-      for (const [mode, label] of cams) {
+      for (const [mode, label, shortcut] of cams) {
         camBox.appendChild(
           el(
             "button",
             {
               type: "button",
               class: `pill-btn${this.cameraMode === mode ? " is-active" : ""}`,
-              onClick: () => {
-                this.cameraMode = mode;
-                this.worldScene?.setCameraMode(mode);
-                this.renderChrome();
-              },
+              title: `${label} (${shortcut})`,
+              onClick: () => this.setCameraMode(mode),
             },
             label,
           ),
@@ -492,27 +624,89 @@ class ViewerApp {
     this.canvasHostEl.hidden = !snapshot;
     this.hudSidebarEl.hidden = !snapshot;
     this.nowDoingOverlayEl.hidden = !snapshot;
-    if (!snapshot) this.thoughtOverlayEl.style.display = "none";
+    this.recentFeedEl.hidden = !snapshot;
+    if (!snapshot) {
+      this.thoughtOverlayEl.style.display = "none";
+      this.renderStatusChips(null);
+    }
+  }
+
+  private renderStatusChips(evaluated: TimelineState | null): void {
+    const snapshot = this.snapshot;
+    const status = this.status?.status ?? snapshot?.status;
+    const alive =
+      (evaluated?.alive ?? snapshot?.resident.vitals.alive ?? true) && status !== "dead";
+    const lastTickIso = this.status?.last_tick_at ?? snapshot?.generated_at ?? null;
+    const countdown = formatDecisionCountdown(
+      {
+        lastTickIso,
+        nowMs: Date.now(),
+        feedState: this.feedState,
+        status,
+        alive,
+      },
+      this.lang,
+    );
+
+    const day = this.status?.world_day ?? this.status?.day ?? null;
+    const season = this.status?.season ?? null;
+    const phase = this.status?.phase ?? snapshot?.resident.phase ?? null;
+    const worldChip =
+      snapshot && evaluated
+        ? formatWorldChip(
+            {
+              day,
+              timeOfDay: evaluated.timeOfDay,
+              weather: evaluated.weather,
+              atMs: evaluated.atMs,
+              coreTemp: snapshot.resident.vitals.core_temp,
+            },
+            this.lang,
+          )
+        : null;
+
+    const identity = JSON.stringify([
+      this.lang,
+      countdown,
+      worldChip,
+      season,
+      phase,
+      this.feedState === "stale" ? snapshot?.generated_at : null,
+    ]);
+    if (this.renderedStatusChips === identity) return;
+    this.renderedStatusChips = identity;
 
     clear(this.statusStripEl);
-    this.statusStripEl.append(
-      el("span", { class: "cadence-disclaimer" }, t(this.lang, "decisionCadenceNotice")),
-    );
-    if (!snapshot) return;
-    const day = this.status?.world_day ?? this.status?.day;
-    const season = this.status?.season;
-    const phase = this.status?.phase ?? snapshot.resident.phase;
-    if (day != null)
-      this.statusStripEl.append(el("span", null, `${t(this.lang, "dayLabel")} ${day}`));
-    if (season)
-      this.statusStripEl.append(el("span", null, `${t(this.lang, "seasonLabel")}: ${season}`));
-    if (phase)
-      this.statusStripEl.append(el("span", null, `${t(this.lang, "phaseLabel")}: ${phase}`));
-    if (this.feedState === "stale") {
+    if (countdown) {
       this.statusStripEl.append(
         el(
           "span",
-          null,
+          { class: `status-chip countdown-chip tone-${countdown.tone} tabular-num` },
+          countdown.text,
+        ),
+      );
+    }
+    if (worldChip) {
+      this.statusStripEl.append(
+        el(
+          "span",
+          { class: `status-chip world-chip tone-${worldChip.tone} tabular-num` },
+          el("span", { class: "world-chip-icon" }, worldChip.icon),
+          el("span", null, worldChip.text),
+        ),
+      );
+    }
+    if (season) {
+      this.statusStripEl.append(el("span", null, `${t(this.lang, "seasonLabel")}: ${season}`));
+    }
+    if (phase) {
+      this.statusStripEl.append(el("span", null, `${t(this.lang, "phaseLabel")}: ${phase}`));
+    }
+    if (this.feedState === "stale" && snapshot) {
+      this.statusStripEl.append(
+        el(
+          "span",
+          { class: "tabular-num" },
           `${t(this.lang, "feedLastUpdate")}: ${formatDateTime(snapshot.generated_at)}`,
         ),
       );
@@ -527,11 +721,26 @@ class ViewerApp {
     const playbackRate = this.isLive && this.feedState !== "demo" ? 1 : speed;
     this.worldScene?.applyTimelineState(evaluated, this.isPlaying ? playbackRate : 0);
 
+    this.renderStatusChips(evaluated);
     this.renderThought(evaluated);
     this.renderAction(evaluated);
+    this.renderRecentFeed(evaluated);
 
     // Vitals & Body HUD
-    renderVitalsHud(this.hudSidebarEl, snapshot, evaluated, this.lang);
+    renderVitalsHud(this.hudSidebarEl, snapshot, evaluated, this.lang, {
+      collapsed: this.sidebarCollapsed,
+      onToggleCollapse: () => {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        this.liveGridEl.classList.toggle("is-sidebar-collapsed", this.sidebarCollapsed);
+        this.renderFrame();
+      },
+      trends: this.vitalTrends,
+      mobileExpanded: this.mobileHudExpanded,
+      onToggleMobile: () => {
+        this.mobileHudExpanded = !this.mobileHudExpanded;
+        this.renderFrame();
+      },
+    });
 
     // Timeline bar
     renderTimelineBar(
@@ -579,11 +788,25 @@ class ViewerApp {
     this.renderedThought = identity;
     clear(this.thoughtOverlayEl);
     this.thoughtOverlayEl.style.display = thought || thinking ? "block" : "none";
+    this.thoughtOverlayEl.classList.toggle("is-clickable", thoughtLogId != null);
+    this.thoughtOverlayEl.onclick = null;
+    this.thoughtOverlayEl.onkeydown = null;
+    this.thoughtOverlayEl.removeAttribute("role");
+    this.thoughtOverlayEl.removeAttribute("tabindex");
+    this.thoughtOverlayEl.removeAttribute("title");
+
     if (!thought && !thinking) return;
 
-    this.thoughtOverlayEl.append(
+    const headerRow = el(
+      "div",
+      { class: "thought-bubble-header" },
       el("div", { class: "thought-bubble-label" }, t(this.lang, "thoughtBubbleLabel")),
+      thoughtLogId != null
+        ? el("span", { class: "thought-bubble-cta" }, `${t(this.lang, "inspectContext")} ↗`)
+        : null,
     );
+    this.thoughtOverlayEl.append(headerRow);
+
     if (thought) {
       const text = el("p", { class: "thought-bubble-text" }, thought);
       this.thoughtOverlayEl.append(text);
@@ -592,10 +815,96 @@ class ViewerApp {
           text.textContent = res.isFallback ? `${res.text} [EN]` : res.text;
         });
       }
-    } else {
-      const context = this.contextButton(thoughtLogId);
-      if (context) this.thoughtOverlayEl.append(context);
     }
+
+    if (thoughtLogId != null) {
+      const openCtx = () => {
+        void openContextModal(this.contextModalEl, this.api, thoughtLogId, this.lang);
+      };
+      this.thoughtOverlayEl.setAttribute("role", "button");
+      this.thoughtOverlayEl.setAttribute("tabindex", "0");
+      this.thoughtOverlayEl.setAttribute("title", t(this.lang, "thoughtInspectHint"));
+      this.thoughtOverlayEl.onclick = openCtx;
+      this.thoughtOverlayEl.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openCtx();
+        }
+      };
+    }
+
+    // Trigger subtle entrance transition on new thought
+    this.thoughtOverlayEl.classList.remove("is-entering");
+    void this.thoughtOverlayEl.offsetWidth;
+    this.thoughtOverlayEl.classList.add("is-entering");
+  }
+
+  private renderRecentFeed(evaluated: TimelineState): void {
+    const items = extractRecentActivity(this.events, evaluated.atMs, 3);
+    const identity = JSON.stringify([this.lang, this.recentCollapsed, items]);
+    if (this.renderedRecent === identity) return;
+    this.renderedRecent = identity;
+
+    clear(this.recentFeedEl);
+    if (items.length === 0) {
+      this.recentFeedEl.hidden = true;
+      return;
+    }
+    this.recentFeedEl.hidden = false;
+    this.recentFeedEl.classList.toggle("is-collapsed", this.recentCollapsed);
+
+    const toggleBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "recent-feed-toggle",
+        onClick: () => {
+          this.recentCollapsed = !this.recentCollapsed;
+          this.renderedRecent = "";
+          this.renderRecentFeed(evaluated);
+        },
+      },
+      el("span", { class: "recent-feed-title" }, t(this.lang, "recentTitle")),
+      el("span", { class: "recent-feed-chevron" }, this.recentCollapsed ? "▴" : "▾"),
+    );
+
+    this.recentFeedEl.append(toggleBtn);
+    if (this.recentCollapsed) return;
+
+    const list = el("ul", { class: "recent-feed-list" });
+    for (const item of items) {
+      const content = el(
+        "span",
+        { class: "recent-feed-item-inner" },
+        el("span", { class: `recent-dot tone-${item.tone}` }),
+        el("span", { class: "recent-time tabular-num" }, item.timeText),
+        el("span", { class: "recent-text" }, item.label),
+      );
+      if (item.logId != null) {
+        const logId = item.logId;
+        list.appendChild(
+          el(
+            "li",
+            null,
+            el(
+              "button",
+              {
+                type: "button",
+                class: "recent-feed-btn",
+                title: t(this.lang, "inspectContext"),
+                onClick: () => {
+                  void openContextModal(this.contextModalEl, this.api, logId, this.lang);
+                },
+              },
+              content,
+            ),
+          ),
+        );
+      } else {
+        list.appendChild(el("li", { class: "recent-feed-row" }, content));
+      }
+    }
+    this.recentFeedEl.append(list);
   }
 
   private renderAction(evaluated: TimelineState): void {
@@ -826,56 +1135,62 @@ class ViewerApp {
 
   private setLang(lang: UiLang): void {
     this.lang = lang;
+    this.renderedStatusChips = "";
     this.renderChrome();
     this.renderFrame();
     if (this.popupOpen) {
       this.renderPopupHeader();
       void this.renderActiveContentTab();
     }
-    if (this.searchQuery) {
-      void this.executeSearch();
+    if (this.searchOpen) {
+      this.renderSearch(false);
     }
   }
 
   private async executeSearch(): Promise<void> {
     if (!this.searchQuery) {
       this.searchResponse = null;
-      this.searchDrawerEl.hidden = true;
+      this.renderSearch(false);
       return;
     }
     this.searchResponse = null;
-    this.renderSearch();
+    this.renderSearch(false);
     this.searchResponse = await runSearch(
       this.api,
       this.searchQuery,
       this.searchCategory,
       this.lang,
     );
-    this.renderSearch();
+    this.renderSearch(false);
   }
 
-  private renderSearch(): void {
-    renderSearchPanel(
-      this.searchDrawerEl,
+  private renderSearch(focusInput: boolean): void {
+    renderSearchPalette(
+      this.searchPaletteEl,
+      this.searchOpen,
       this.searchResponse,
       this.searchQuery,
       this.searchCategory,
       this.lang,
       {
+        onSubmitQuery: (query) => {
+          this.searchQuery = query;
+          void this.executeSearch();
+        },
         onFilterCategory: (cat) => {
           this.searchCategory = cat;
-          void this.executeSearch();
+          if (this.searchQuery) {
+            void this.executeSearch();
+          } else {
+            this.renderSearch(false);
+          }
         },
         onInspectContext: (entryId) => {
           void openContextModal(this.contextModalEl, this.api, entryId, this.lang);
         },
-        onClose: () => {
-          this.searchQuery = "";
-          this.searchResponse = null;
-          this.searchDrawerEl.hidden = true;
-          this.renderChrome();
-        },
+        onClose: () => this.closeSearchPalette(),
       },
+      focusInput,
     );
   }
 }

@@ -2,6 +2,7 @@ import type { Event } from "@truman/contracts";
 import { t, type UiLang } from "../i18n";
 import type { TimelineState } from "../state/timeline";
 import { clear, el, formatTime } from "./dom";
+import { buildTimelineMarkers } from "./hudHelpers";
 
 export interface TimelineBarCallbacks {
   onToggleLive: () => void;
@@ -55,7 +56,7 @@ export function renderTimelineBar(
     "button",
     {
       type: "button",
-      class: "tl-btn tl-speed",
+      class: "tl-btn tl-speed tabular-num",
       title: t(lang, "timelineSpeed"),
       onClick: cb.onCycleSpeed,
     },
@@ -77,6 +78,26 @@ export function renderTimelineBar(
     },
   });
 
+  // Interactive color-coded event dots along the scrubber track
+  const markers = buildTimelineMarkers(events, start, end);
+  const markersLayer = el(
+    "div",
+    { class: "tl-markers" },
+    ...markers.map((m) => {
+      const tooltip = `${m.timeText} · ${m.label}`;
+      const btn = el("button", {
+        type: "button",
+        class: `tl-marker tone-${m.tone}`,
+        style: `left: ${m.pct.toFixed(2)}%`,
+        title: tooltip,
+        "aria-label": tooltip,
+        onClick: () => cb.onScrub(m.atMs),
+      });
+      btn.dataset.tooltip = tooltip;
+      return btn;
+    }),
+  );
+
   const badge = evaluated.midAction
     ? el(
         "span",
@@ -87,7 +108,7 @@ export function renderTimelineBar(
 
   const meta = el(
     "div",
-    { class: "tl-meta" },
+    { class: "tl-meta tabular-num" },
     el("span", null, formatTime(new Date(current).toISOString())),
     el("span", { class: "tl-sep" }, "·"),
     el("span", null, `${events.length} ${t(lang, "timelineEventsCount")}`),
@@ -98,7 +119,7 @@ export function renderTimelineBar(
       "div",
       { class: "timeline-bar-inner" },
       el("div", { class: "tl-controls" }, liveBtn, playBtn, speedBtn),
-      el("div", { class: "tl-track-wrap" }, slider),
+      el("div", { class: "tl-track-wrap" }, markersLayer, slider),
       el("div", { class: "tl-right" }, badge, meta),
     ),
   );
