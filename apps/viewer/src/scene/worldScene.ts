@@ -152,7 +152,7 @@ export class WorldScene {
 
   private readonly sceneryBatches: SceneryBatch[] = [];
   private currentMap: WorldMap | null = null;
-  private cameraMode: CameraMode = "cabin";
+  private cameraMode: CameraMode = "follow";
   private latestState: TimelineState | null = null;
   private latestStateReceivedAt = 0;
   private playbackRate = 0;
@@ -271,9 +271,15 @@ export class WorldScene {
   }
 
   applyTimelineState(state: TimelineState, playbackRate: number): void {
+    const isFirstState = this.latestState === null;
     this.latestState = state;
     this.latestStateReceivedAt = performance.now();
     this.playbackRate = playbackRate;
+    if (isFirstState && this.cameraMode === "follow") {
+      const p = state.pose;
+      this.camera.position.set(p.x + 3.8, 3.4, p.z + 4.0);
+      this.controls.target.set(p.x, 1.0, p.z);
+    }
     this.applyAtmosphere(state.timeOfDay, state.weather);
     this.applyFireVisual(state.fire.state);
   }

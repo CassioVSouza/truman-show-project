@@ -2,8 +2,7 @@ import type { I18nKey } from "./en";
 
 export const PT_BR: Record<I18nKey, string> = {
   // Brand & chrome
-  appTitle: "A Cabana — Observador Público",
-  readOnlyBadge: "ESPECTADOR SOMENTE LEITURA",
+  appTitle: "The Truman Show Project",
   demoBadge: "DEMO OFFLINE",
   liveBadge: "AO VIVO",
   viewersWatching: "assistindo",
@@ -20,6 +19,9 @@ export const PT_BR: Record<I18nKey, string> = {
   searchPlaceholder: "Buscar pensamentos, diário, memórias, traces...",
   searchButton: "Buscar",
   searchClear: "Limpar",
+  searchPaletteEmpty: "Digite para buscar pensamentos, diário, memórias e traces do Lab...",
+  cinemaEnter: "Cinema",
+  cinemaExit: "Sair do Cinema",
   loading: "Carregando...",
   emptyState: "Nenhum registro ainda.",
   errorLoad: "API indisponível — exibindo estado de demonstração offline.",
@@ -42,6 +44,16 @@ export const PT_BR: Record<I18nKey, string> = {
   weatherLabel: "Clima",
   phaseLabel: "Fase",
   decisionCadenceNotice: "O Residente toma decisões a cada 10 minutos.",
+  nextDecisionIn: "Próxima decisão",
+  nextDecisionDue: "Decisão iminente",
+  nextDecisionCadence: "Ciclo 10m",
+  nextDecisionPaused: "Pausado",
+  sidebarCollapse: "Recolher painel de sinais",
+  sidebarExpand: "Expandir painel de sinais",
+  recentTitle: "Recente",
+  recentHide: "Ocultar recente",
+  thoughtInspectHint: "Clique para ver o contexto causal",
+  mobileVitalsHandle: "Sinais & Corpo",
 
   // Life menus (doc 09)
   navLive: "Ao Vivo",

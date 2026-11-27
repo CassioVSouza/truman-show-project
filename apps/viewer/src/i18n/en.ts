@@ -1,7 +1,6 @@
 export const EN = {
   // Brand & chrome
-  appTitle: "The Cabin — Public Observer",
-  readOnlyBadge: "READ-ONLY SPECTATOR",
+  appTitle: "The Truman Show Project",
   demoBadge: "OFFLINE DEMO",
   liveBadge: "LIVE",
   viewersWatching: "watching",
@@ -17,6 +16,9 @@ export const EN = {
   searchPlaceholder: "Search thoughts, journal, memories, traces...",
   searchButton: "Search",
   searchClear: "Clear",
+  searchPaletteEmpty: "Type to search thoughts, journal, memories, and lab traces...",
+  cinemaEnter: "Cinema",
+  cinemaExit: "Exit Cinema",
   loading: "Loading...",
   emptyState: "No entries yet.",
   errorLoad: "Could not reach the API — showing offline demo state.",
@@ -39,6 +41,16 @@ export const EN = {
   weatherLabel: "Weather",
   phaseLabel: "Phase",
   decisionCadenceNotice: "The Resident makes decisions every 10 minutes.",
+  nextDecisionIn: "Next decision",
+  nextDecisionDue: "Decision due",
+  nextDecisionCadence: "10m cycle",
+  nextDecisionPaused: "Paused",
+  sidebarCollapse: "Collapse vitals panel",
+  sidebarExpand: "Expand vitals panel",
+  recentTitle: "Recent",
+  recentHide: "Hide recent",
+  thoughtInspectHint: "Click to inspect causal context",
+  mobileVitalsHandle: "Vitals & Body",
 
   // Life menus (doc 09)
   navLive: "Live",

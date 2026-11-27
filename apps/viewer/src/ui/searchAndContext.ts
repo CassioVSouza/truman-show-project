@@ -3,24 +3,62 @@ import type { ViewerApiClient } from "../api/client";
 import { t, toApiLang, type UiLang } from "../i18n";
 import { clear, el, formatDateTime } from "./dom";
 
-export function renderSearchPanel(
-  container: HTMLElement,
+export interface SearchPaletteHandlers {
+  onSubmitQuery: (query: string) => void;
+  onFilterCategory: (cat: "all" | "life" | "lab") => void;
+  onInspectContext: (entryId: number) => void;
+  onClose: () => void;
+}
+
+export function renderSearchPalette(
+  backdrop: HTMLElement,
+  isOpen: boolean,
   response: SearchResponse | null,
   query: string,
   category: "all" | "life" | "lab",
   lang: UiLang,
-  handlers: {
-    onFilterCategory: (cat: "all" | "life" | "lab") => void;
-    onInspectContext: (entryId: number) => void;
-    onClose: () => void;
-  },
+  handlers: SearchPaletteHandlers,
+  focusInput = false,
 ): void {
-  clear(container);
-  if (!query.trim()) {
-    container.hidden = true;
+  backdrop.hidden = !isOpen;
+  if (!isOpen) {
+    clear(backdrop);
     return;
   }
-  container.hidden = false;
+  clear(backdrop);
+
+  const input = el("input", {
+    type: "search",
+    class: "palette-input",
+    placeholder: t(lang, "searchPlaceholder"),
+    value: query,
+    "aria-label": t(lang, "searchButton"),
+  });
+
+  const form = el(
+    "form",
+    {
+      class: "palette-form",
+      onSubmit: (e) => {
+        e.preventDefault();
+        handlers.onSubmitQuery(input.value.trim());
+      },
+    },
+    el("span", { class: "palette-icon" }, "⌕"),
+    input,
+    el("button", { type: "submit", class: "pill-btn" }, t(lang, "searchButton")),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "tab-popup-close",
+        title: t(lang, "close"),
+        "aria-label": t(lang, "close"),
+        onClick: handlers.onClose,
+      },
+      "×",
+    ),
+  );
 
   const filterBtn = (cat: "all" | "life" | "lab", label: string) =>
     el(
@@ -33,30 +71,28 @@ export function renderSearchPanel(
       label,
     );
 
-  const header = el(
+  const filtersRow = el(
     "div",
-    { class: "panel-header" },
-    el("h2", null, `${t(lang, "searchResultsTitle")}: “${query}”`),
+    { class: "palette-filters" },
     el(
       "div",
       { class: "panel-actions" },
       filterBtn("all", t(lang, "filterAll")),
       filterBtn("life", t(lang, "filterLife")),
       filterBtn("lab", t(lang, "filterLab")),
-      el(
-        "button",
-        { type: "button", class: "ghost-btn", onClick: handlers.onClose },
-        t(lang, "close"),
-      ),
     ),
+    el("span", { class: "palette-hint" }, el("kbd", null, "Esc")),
   );
 
-  const list = el("div", { class: "card-list" });
-  if (!response) {
-    list.appendChild(el("p", { class: "muted-note" }, t(lang, "loading")));
+  const resultsWrap = el("div", { class: "palette-results" });
+  if (!query.trim()) {
+    resultsWrap.appendChild(el("p", { class: "muted-note" }, t(lang, "searchPaletteEmpty")));
+  } else if (!response) {
+    resultsWrap.appendChild(el("p", { class: "muted-note" }, t(lang, "loading")));
   } else if (response.results.length === 0) {
-    list.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
+    resultsWrap.appendChild(el("p", { class: "muted-note" }, t(lang, "emptyState")));
   } else {
+    const list = el("div", { class: "card-list" });
     for (const item of response.results) {
       list.appendChild(
         el(
@@ -67,7 +103,7 @@ export function renderSearchPanel(
             { class: "entry-meta" },
             el("span", { class: `tag tag-${item.category}` }, item.category.toUpperCase()),
             el("span", { class: "tag" }, item.kind),
-            el("span", { class: "meta-ts" }, formatDateTime(item.ts)),
+            el("span", { class: "meta-ts tabular-num" }, formatDateTime(item.ts)),
             el(
               "button",
               {
@@ -82,9 +118,19 @@ export function renderSearchPanel(
         ),
       );
     }
+    resultsWrap.appendChild(list);
   }
 
-  container.appendChild(el("div", { class: "search-drawer-inner" }, header, list));
+  backdrop.appendChild(
+    el("div", { class: "search-palette-card", role: "dialog" }, form, filtersRow, resultsWrap),
+  );
+
+  if (focusInput) {
+    requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  }
 }
 
 function renderEntryMini(
@@ -99,7 +145,7 @@ function renderEntryMini(
       "div",
       { class: "entry-meta" },
       el("span", { class: `tag tag-${entry.category}` }, entry.kind),
-      el("span", { class: "meta-ts" }, `#${entry.id} · ${formatDateTime(entry.ts)}`),
+      el("span", { class: "meta-ts tabular-num" }, `#${entry.id} · ${formatDateTime(entry.ts)}`),
       el(
         "button",
         { type: "button", class: "link-btn", onClick: () => onSelect(entry.id) },
@@ -215,7 +261,7 @@ function renderContextModalContent(
         "div",
         { class: "entry-meta" },
         el("span", { class: `tag tag-${ctx.entry.category}` }, ctx.entry.kind),
-        el("span", { class: "meta-ts" }, formatDateTime(ctx.entry.ts)),
+        el("span", { class: "meta-ts tabular-num" }, formatDateTime(ctx.entry.ts)),
       ),
       el("p", { class: "entry-text" }, ctx.entry.text),
       Object.keys(ctx.entry.data).length > 0
