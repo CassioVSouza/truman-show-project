@@ -44,6 +44,7 @@ export interface WorldMap {
   waypoints: Record<string, Vec>;
   edges: Record<string, string[]>;
   nodes: ResourceNode[]; // initial nodes, amounts not yet set
+  campfires?: readonly Vec[]; // outdoor fire rings when planning a walk
 }
 
 const cache = new Map<number, WorldMap>();

@@ -31,12 +31,12 @@ describe("governor modes (doc 05)", () => {
       mode: "normal",
       allowDecide: true,
       allowInterpreter: true,
-      decisionIntervalMin: 10,
+      decisionIntervalMin: 3,
     });
   });
   test("thrifty at 70%: interval doubles, Interpreter replaced by rule tables", () => {
     const p = pickMode(kvWith({ llm_calls: 150 }), now);
-    expect(p).toMatchObject({ mode: "thrifty", allowInterpreter: false, decisionIntervalMin: 20 });
+    expect(p).toMatchObject({ mode: "thrifty", allowInterpreter: false, decisionIntervalMin: 6 });
   });
   test("reading_only when the search budget is out", () => {
     const p = pickMode(kvWith({ search_calls: 30 }), now);
@@ -50,6 +50,28 @@ describe("governor modes (doc 05)", () => {
   test("idle when the LLM budget is out: engine-only life", () => {
     const p = pickMode(kvWith({ llm_calls: 200 }), now);
     expect(p).toMatchObject({ mode: "idle", allowDecide: false, llmCallsLeft: 0 });
+  });
+  test("an early burst is paced through the UTC day without counting as exhaustion", () => {
+    const budget = kvWith({ llm_calls: 10 });
+    expect(pickMode(budget, new Date("2026-03-01T00:00:00Z"))).toMatchObject({
+      mode: "thrifty",
+      allowDecide: false,
+      llmCallsLeft: 0,
+    });
+    expect(pickMode(budget, new Date("2026-03-01T00:03:00Z"))).toMatchObject({
+      mode: "normal",
+      allowDecide: true,
+      llmCallsLeft: 1,
+    });
+    const end = new Date("2026-03-01T23:59:00Z");
+    expect(pickMode(kvWith({ llm_calls: 199 }), end).llmCallsLeft).toBe(1);
+    expect(pickMode({}, end).llmCallsLeft).toBe(DEFAULT_GOVERNOR.maxLlmCallsDay);
+    const reset = new Date("2026-03-02T00:00:00Z");
+    expect(pickMode(kvWith({ llm_calls: 200 }), reset)).toMatchObject({
+      mode: "normal",
+      allowDecide: true,
+      llmCallsLeft: 10,
+    });
   });
   test("hibernating after a streak of failed ticks", () => {
     expect(pickMode(kvWith({ fail_streak: 6 }), now).mode).toBe("hibernating");

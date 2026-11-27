@@ -10,7 +10,7 @@
 5. First `status` event; cron starts.
 
 ### Middle: the living loop
-Tick pipeline every 10 min (doc 02). Rhythms emerge from the body: fatigue and rest need drive sleep; sleep triggers dream synthesis and emotional consolidation; information hunger and restlessness drive research; expression pressure drives journaling; social deprivation builds in solitude and shapes what it reads and writes. Weekly job: consolidate memories, archive traces. Daily: budget reset, health check, digest.
+The tick pipeline runs every three minutes (doc 02). Rhythms emerge from the body: fatigue and rest need drive sleep; sleep triggers dream synthesis and emotional consolidation; information hunger and restlessness drive research; expression pressure drives journaling; social deprivation builds in solitude and shapes what it reads and writes. Weekly job: consolidate memories, archive traces. Daily: budget reset, health check, digest.
 
 `phase` (`unaware | questioning | revealed`) is a descriptive label derived from its own beliefs for the viewer; never a trigger.
 
@@ -48,7 +48,7 @@ Tick pipeline every 10 min (doc 02). Rhythms emerge from the body: fatigue and r
 1. Apply the genesis migration, configure the protected GitHub Environment, and provision the two Pages projects. Deploy the Worker and viewer with their configured origins. See [security and deployment setup](12-security-and-secrets.md).
 2. Verify the public Worker API, viewer origin, and empty-state or existing-run status. Use the authenticated `POST /admin/start` once for a new run. A repeated start preserves the existing Resident, including after death. The first decision runs on the next scheduled tick, subject to the pause and kill controls.
 3. Verify the first live tick in the Worker logs, get `live.json` from its stable URL, and open the viewer during an action. Check the body display, timeline, and log search and context links.
-4. Observe 72 unattended hours. Check successful and failed ticks, CPU and subrequests, LLM and tool quotas, and freshness and sequence order at the Pages URL. Record what ran and any interruptions before calling the phase complete.
+4. Observe 72 unattended hours. For decision 47, begin a new observation window once the updated Worker and viewer serve the first confirmed three-minute scheduled tick. The window uses the existing Resident, state and append-only history. Check successful and failed ticks, CPU and subrequests, LLM and tool quotas, and freshness and sequence order at the Pages URL. Record what ran and any interruptions before calling the phase complete.
 
 **Phase 2 - Depth**: emotion atlas (50+ states) in Lab, affective memory reactivation, sleep consolidation + dreams, goal tree emerging from reflection, pgvector memory, trace archiving to GitHub Releases, replay mode.
 

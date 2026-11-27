@@ -1,6 +1,7 @@
 import { Event, Snapshot, type LiveFeed, type InventoryItem } from "@truman/contracts";
 import { vitals } from "@truman/body";
-import { dayIndex, fireState, seasonAt, timeOfDay, weatherAt } from "@truman/world";
+import { dayIndex, fireState, fireTimeline, seasonAt, timeOfDay, weatherAt } from "@truman/world";
+import { publicFireId } from "../tick/fire-events";
 import { physiologyNow } from "../tick/senses";
 import { worldTimeAt, type MindState } from "../tick/state";
 
@@ -25,7 +26,17 @@ function isoDate(value: unknown): string | null {
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-const animationNames = new Set(["thinking", "read", "write", "rest", "tend_fire", "work"]);
+const animationNames = new Set([
+  "thinking",
+  "read",
+  "write",
+  "rest",
+  "make_fire",
+  "tend_fire",
+  "cook",
+  "boil_water",
+  "work",
+]);
 
 /** Keep narration in the dynamic log so takedowns apply even to old static deployments. */
 function publicEvents(raw: unknown): Event[] {
@@ -87,6 +98,32 @@ function publicInventory(inventory: InventoryItem[]): InventoryItem[] {
   });
 }
 
+function publicFires(mind: MindState, clock: number): Snapshot["world"]["entities"] {
+  const { world, actionFireStart } = mind;
+  // A committed macro-action can be ahead of the viewer. Start with its fuel at action time
+  // and replay only transitions that have happened by the beginning of this snapshot.
+  const start =
+    actionFireStart && actionFireStart.t <= clock && clock < world.t
+      ? { ...world, ...actionFireStart }
+      : world;
+  const transitions = new Map(
+    start === world
+      ? []
+      : fireTimeline(start, clock).map(({ fire, state }) => [fire.id, state] as const),
+  );
+  return start.fires
+    .filter((fire) => fire.hearth || fire.litAt <= clock)
+    .map((fire) => ({
+      id: publicFireId(fire),
+      type: "fire",
+      x: fire.x,
+      z: fire.z,
+      appearance: {
+        state: transitions.get(fire.id) ?? (fire.litAt <= clock ? fireState(fire, clock) : "out"),
+      },
+    }));
+}
+
 export function createSnapshotPublisher(
   readEvents: SnapshotEventReader,
   write: SnapshotWriter,
@@ -107,13 +144,7 @@ export function createSnapshotPublisher(
         weather: weatherAt(world, clock).kind,
         time_of_day: timeOfDay(world, clock),
         entities: [
-          ...world.fires.map((fire) => ({
-            id: fire.hearth ? "hearth_fire" : `fire_${fire.id}`,
-            type: "fire",
-            x: fire.x,
-            z: fire.z,
-            appearance: { state: fireState(fire, clock) },
-          })),
+          ...publicFires(mind, clock),
           ...world.nodes.map((node) => ({
             id: node.id,
             type: node.kind,

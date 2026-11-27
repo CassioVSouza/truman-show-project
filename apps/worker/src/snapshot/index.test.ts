@@ -1,4 +1,5 @@
 import { LiveFeed } from "@truman/contracts";
+import { advance } from "@truman/world";
 import { describe, expect, test, vi } from "vitest";
 import { SupabaseDb } from "../db/supabase";
 import type { TickPayload } from "../db/types";
@@ -115,6 +116,45 @@ describe("public snapshot projection", () => {
     expect(content).not.toContain("temperament");
     expect(content).not.toContain("lookalike");
   });
+
+  test("ongoing macro-actions expose the fire state at playback time, with stable fire identifiers", async () => {
+    const mind = genesis(17, started.getTime() - 60_000);
+    const hearth = { ...mind.world.fires[0]!, fuel: 30 };
+    mind.world = { ...mind.world, fires: [hearth] };
+    mind.actionFireStart = { t: mind.world.t, fires: mind.world.fires };
+    mind.world = advance(mind.world, 120);
+    expect(mind.world.fires[0]?.fuel).toBe(0);
+    const write = vi.fn<(feed: LiveFeed) => Promise<void>>(async () => undefined);
+    await createSnapshotPublisher(
+      async () => [
+        {
+          ...event(10, "fire", { id: "hearth_fire", state: "dying", x: hearth.x, z: hearth.z }),
+          t_start: "2026-11-26T12:01:30.000Z",
+          t_end: "2026-11-26T12:01:30.000Z",
+        },
+      ],
+      write,
+    )({
+      started,
+      tickMinutes: 3,
+      tickId: 25,
+      mind,
+      mode: "normal",
+      status: "running",
+      phase: "unaware",
+      lastTickAt: null,
+    });
+    const feed = LiveFeed.parse(write.mock.calls[0]?.[0]);
+    expect(feed.snapshot.world.entities).toContainEqual(
+      expect.objectContaining({ id: "hearth_fire", appearance: { state: "lit" } }),
+    );
+    expect(feed.events).toContainEqual(
+      expect.objectContaining({
+        kind: "fire",
+        data: { id: "hearth_fire", state: "dying", x: hearth.x, z: hearth.z },
+      }),
+    );
+  });
 });
 
 function wiring(
@@ -157,7 +197,7 @@ function wiring(
         calls.push("read");
         expect(url.searchParams.get("select")).toContain("entry:log_entries(hidden)");
         expect(url.searchParams.get("t_end")).toBe("gte.2026-11-26T12:00:00.000Z");
-        expect(url.searchParams.get("t_start")).toBe("lte.2026-11-26T12:10:00.000Z");
+        expect(url.searchParams.get("t_start")).toBe("lte.2026-11-26T12:03:00.000Z");
         return Response.json([]);
       default:
         throw new Error("unexpected request");

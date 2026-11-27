@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const SCHEMA_VERSION = 1;
+export const DEFAULT_TICK_MINUTES = 3;
 
 export const Station = z.enum([
   "desk",
@@ -286,9 +287,10 @@ const ev = <K extends string, D extends z.ZodTypeAny>(kind: K, data: D) =>
     log_id: z.number().int().nullable(),
   });
 
+const RestPlacement = z.object({ on_bed: z.boolean().optional(), heading: z.number().optional() });
 export const Event = z.discriminatedUnion("kind", [
   ev("walk", z.object({ waypoints: z.array(Vec).min(2), speed: z.number().positive() })),
-  ev("anim", z.object({ name: z.string(), station: Station.optional() })),
+  ev("anim", RestPlacement.extend({ name: z.string(), station: Station.optional() })),
   ev("thought", z.object({ text: z.string() })),
   ev("web_visit", z.object({ url: z.string().url(), title: z.string().optional() })),
   ev("journal", z.object({ id: z.number().int(), preview: z.string() })),
@@ -302,7 +304,7 @@ export const Event = z.discriminatedUnion("kind", [
       muscle_tension: true,
     }),
   ),
-  ev("sleep_start", z.object({})),
+  ev("sleep_start", RestPlacement),
   ev("sleep_end", z.object({})),
   ev("dream", z.object({ id: z.number().int(), text: z.string() })),
   ev(
@@ -319,7 +321,12 @@ export const Event = z.discriminatedUnion("kind", [
   ),
   ev(
     "fire",
-    z.object({ state: z.enum(["lit", "burning", "dying", "out"]), x: z.number(), z: z.number() }),
+    z.object({
+      id: z.string().optional(),
+      state: z.enum(["lit", "burning", "dying", "out"]),
+      x: z.number(),
+      z: z.number(),
+    }),
   ),
   ev("injury", z.object({ wound_id: z.number().int(), type: z.string(), location: z.string() })),
   ev("death", z.object({ cause: z.string() })),

@@ -179,6 +179,17 @@ describe("perception text", () => {
 });
 
 describe("place line (decision 41)", () => {
+  test("describes canopy cover and says when there is no fire nearby", () => {
+    const w = createWorld(2489842540);
+    const tree = w.nodes.find((n) => n.id === "tree_17")!;
+    const underCanopy = perceive(w, { x: tree.x + 2, z: tree.z, heading: 0 });
+    expect(underCanopy.text).toContain("Branches overhead break some of the wind and rain.");
+    expect(underCanopy.text).toContain("There is no fire burning nearby.");
+    const inTheOpen = perceive(w, { x: 0, z: 5, heading: 0 });
+    expect(inTheOpen.text).toContain("There is no cover overhead here.");
+    clean(underCanopy.text);
+    clean(inTheOpen.text);
+  });
   test("states where the Resident is and the cabin distance behind it, in plain metres", () => {
     const w = createWorld(1);
     const text = perceive(w, { x: 0, z: 15, heading: 0 }).text;

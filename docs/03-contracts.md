@@ -30,6 +30,8 @@ See doc 08. `OrganismState` (18 hidden variables), `Physiology` (21 channels), `
 ## 6. Event (engine -> viewer)
 `walk, anim, thought, web_visit, journal, body (heart_rate, breath_rate, posture, heaviness, tension), sleep_start, sleep_end, dream, world, status`, each with `t_start, t_end, seq, log_id`. The viewer is a pure function of snapshot + timeline.
 
+Each `fire` event carries a state and world coordinates. New fire events also include the stable entity ID from the snapshot. New rest animations and `sleep_start` events can include bed placement and lying direction. The viewer accepts earlier events without these fields.
+
 ## 7. Public API (read-only, GET, JSON, via Worker, edge-cached)
 
 The static Pages host serves `GET /live.json`, a single JSON object with `snapshot`, `events` and `status`. The bundle contains public world and Resident display state, event timing and movement, and log references. Read Resident-authored text through the dynamic routes below so that hide flags apply.

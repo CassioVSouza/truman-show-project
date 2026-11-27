@@ -139,6 +139,7 @@ export const WORLD_CONFIG = {
       berry_bush: 0.7,
       stone_outcrop: 1.1,
       flint_nodule: 0.65,
+      clay_bank: 1.15,
       deadwood: 0.43,
       woodpile: 0.43,
     } as Partial<Record<NodeKind, number>>,
@@ -162,6 +163,8 @@ export const WORLD_CONFIG = {
     cabinQuality: 0.85,
     canopyQuality: 0.35,
     canopyRadius: 4,
+    restHalfLength: 0.86, // lying body, before applying walking-radius clearance
+    bedReach: 1.5,
     integrityFloor: 0.25,
     integrityDecayPerHour: 0.0003,
     repairGain: 0.12,
@@ -170,6 +173,9 @@ export const WORLD_CONFIG = {
   },
   // ---- fire ----
   fire: {
+    campRadius: 0.45, // radius of the outdoor fire ring
+    campStandOff: 1.2, // space to work beside the fire
+    campTreeClearance: 2.4,
     fuelPerLog: 60,
     kindlingLogs: 2,
     maxFuel: 600,

@@ -9,4 +9,4 @@ preview_urls = false
 SUPABASE_URL = "https://suadfgpoprtormoomqyw.supabase.co"   # base URL only, non-secret
 
 [triggers]
-crons = ["*/10 * * * *"]   # TICK_MINUTES = 10; verify against docs/05
+crons = ["*/3 * * * *"]   # TICK_MINUTES = 3; see docs/05

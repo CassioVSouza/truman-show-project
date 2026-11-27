@@ -26,9 +26,10 @@ const rules: LeakRules = {
 describe("7-day simulated pipeline (doc 06 section C)", () => {
   test("budgets respected, no corruption, memories recalled, zero leaks across 7 days", async () => {
     let agent: FakeProvider | undefined;
-    const gov = { ...DEFAULT_GOVERNOR, maxLlmCallsDay: 120, maxSearchDay: 15, maxFetchDay: 30 };
+    const gov = DEFAULT_GOVERNOR;
     const { db, results } = await simulate({
       days: 7,
+      stepMin: gov.tickMinutes,
       governor: gov,
       providers: (simDb) => [(agent = makeAgent(simDb))],
       tools: {
@@ -49,7 +50,7 @@ describe("7-day simulated pipeline (doc 06 section C)", () => {
       },
     });
 
-    expect(results).toHaveLength(7 * 144);
+    expect(results).toHaveLength(7 * 480);
 
     // 1. Daily budgets NEVER exceeded on any UTC day
     const byDay = new Map<string, { llm: number; search: number; fetch: number }>();
@@ -72,7 +73,7 @@ describe("7-day simulated pipeline (doc 06 section C)", () => {
     // 2. No state corruption: finite numbers, caps respected, Resident stayed alive
     const mind = db.mind!;
     expect(mind).not.toBeNull();
-    expect(mind.body.alive).toBe(true);
+    expect(mind.body.alive, mind.body.cause_of_death ?? undefined).toBe(true);
     expect(Number.isFinite(mind.world.t)).toBe(true);
     expect(Number.isFinite(mind.body.health)).toBe(true);
     expect(Number.isFinite(mind.organism.state.valence)).toBe(true);

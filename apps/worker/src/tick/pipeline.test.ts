@@ -133,6 +133,24 @@ describe("fallback and failure handling", () => {
     ).toBe(true);
   });
 
+  test("fallbacks count toward paced allowance and a paced wait stays running", async () => {
+    const db = new SimDb();
+    db.kv["budget"] = { day: "2026-03-01", llm_calls: 10 };
+    const busyProvider = new FakeProvider("gemini", new LLMError("RateLimited", "quota waiting"));
+    const backup = makeAgent(db);
+    const run = (at: string) =>
+      runMindTick({ ...baseDeps(db, [busyProvider, backup]), now: () => new Date(at) });
+
+    const first = await run("2026-03-01T00:01:00Z");
+    expect(first).toMatchObject({ llm_calls: 1 });
+    expect(backup.calls).toHaveLength(0);
+    expect(db.kv["budget"]).toMatchObject({ llm_calls: 11 });
+
+    const next = await run("2026-03-01T00:04:00Z");
+    expect(next).toMatchObject({ mode: "thrifty", step: "continuing", llm_calls: 0 });
+    expect(db.resident?.["status"]).toBe("running");
+  });
+
   test("invalid JSON gets one repair retry on the same provider", async () => {
     const db = new SimDb();
     const good = {

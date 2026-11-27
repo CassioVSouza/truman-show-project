@@ -3,9 +3,9 @@ import { drink, fillJar, gather, moveTo } from "./actions";
 import { WORLD_CONFIG } from "./config";
 import { starterInventory } from "./items";
 import { dist, generateMap, nearestOnSegment } from "./map";
-import { planWalk, walkableTrailSegments } from "./path";
+import { planWalk, recoverWalkPosition, walkableTrailSegments } from "./path";
 import type { ResourceNode, Vec } from "./types";
-import { createWorld } from "./world";
+import { advance, createWorld, walkMapOf } from "./world";
 import { hitsWalkObstacle, walkObstacles } from "./walkGeometry";
 
 const liveSeed = 2489842540;
@@ -67,6 +67,20 @@ describe("obstacle-aware walking", () => {
     }
   });
 
+  test("exits the cabin through the doorway using the same collision rules", () => {
+    const map = generateMap(7);
+    const start = recoverWalkPosition(map, map.stations.bed)!;
+    const yard = map.waypoints["yard"]!;
+    const plan = planWalk(map, start, yard, { direct: true });
+    expect(plan.reached).toBe(true);
+    const obstacles = walkObstacles(map, cfg);
+    for (let i = 1; i < plan.points.length; i++) {
+      expect(obstacles.some((o) => hitsWalkObstacle(o, plan.points[i - 1]!, plan.points[i]!))).toBe(
+        false,
+      );
+    }
+  });
+
   test("generated station trails remain clear and usable on the live map", () => {
     const map = generateMap(liveSeed);
     const obstacles = walkObstacles(map, cfg);
@@ -107,6 +121,10 @@ describe("obstacle-aware walking", () => {
     const tree = w.nodes.find((n) => n.id === "tree_17")!;
     expect({ x: tree.x, z: tree.z }).toEqual({ x: 4.31, z: -24.19 });
     const persisted = { x: tree.x, z: tree.z };
+    const recovered = recoverWalkPosition(walkMapOf(w), persisted)!;
+    expect(dist(recovered, tree)).toBeGreaterThan(cfg.map.treeTrunkRadius + cfg.walk.radius);
+    expect(recoverWalkPosition(walkMapOf(w), recovered)).toBe(recovered);
+    expect(gather(w, actorAt(recovered), "fallen branches", 10).facts.node).toBe(tree.id);
     const result = gather(w, actorAt(persisted), "wood", 10);
     expect(result.ok).toBe(true);
     expect(result.facts.node).toBe(tree.id);
@@ -118,6 +136,34 @@ describe("obstacle-aware walking", () => {
     const noTravel = gather(w, result.actor, "wood", 10);
     expect(noTravel.walk?.distance).toBe(0);
     expect(noTravel.actor.pos).toEqual(result.actor.pos);
+  });
+
+  test("routes around a campfire ring through its burn and cooling time", () => {
+    const initial = createWorld(7);
+    const fire = {
+      ...initial.fires[0]!,
+      id: 1,
+      x: 90,
+      z: 70,
+      fuel: 3,
+      hearth: false,
+      indoors: false,
+    };
+    const w = { ...initial, fires: [...initial.fires, fire] };
+    const map = walkMapOf(w);
+    const cooled = advance(w, 30);
+    expect(cooled.fires[1]!.fuel).toBe(0);
+    expect(walkMapOf(cooled)).toBe(map);
+    const from = { x: 87, z: 70 };
+    const to = { x: 93, z: 70 };
+    const plan = planWalk(map, from, to, { direct: true });
+    expect(plan.reached).toBe(true);
+    expect(plan.points.length).toBeGreaterThan(2);
+    for (let i = 1; i < plan.points.length; i++) {
+      const closest = nearestOnSegment(fire, plan.points[i - 1]!, plan.points[i]!);
+      expect(dist(fire, closest)).toBeGreaterThan(cfg.fire.campRadius + cfg.walk.radius);
+    }
+    expect(walkMapOf(advance(cooled, 500))).toBe(generateMap(w.seed));
   });
 
   test("reaches the raised spring basin on foot and refills from the same spot", () => {

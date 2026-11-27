@@ -1,5 +1,6 @@
 // Governor modes and daily budgets (doc 05). Pure functions over the kv snapshot; counters are written back in
-// the tick's single commit. The 10-minute pace is kept whenever the budget allows: slowing only under pressure.
+// the tick's single commit. The normal pace is kept whenever the budget allows.
+import { DEFAULT_TICK_MINUTES } from "@truman/contracts";
 import type { Env } from "../env";
 
 export type Mode = "normal" | "thrifty" | "reading_only" | "idle" | "hibernating";
@@ -7,6 +8,8 @@ export type Mode = "normal" | "thrifty" | "reading_only" | "idle" | "hibernating
 export const DEFAULT_TIME_SCALE = 4;
 export const MIN_TIME_SCALE = 1;
 export const MAX_TIME_SCALE = 24;
+const UTC_DAY_MS = 86_400_000;
+const LLM_START_BURST = 0.05;
 
 export interface GovernorConfig {
   maxLlmCallsDay: number;
@@ -28,7 +31,7 @@ export const DEFAULT_GOVERNOR: GovernorConfig = {
   maxSearchDay: 30,
   maxFetchDay: 100,
   maxEarlyTicksDay: 12,
-  tickMinutes: 10,
+  tickMinutes: DEFAULT_TICK_MINUTES,
   timeScale: DEFAULT_TIME_SCALE,
   thriftyAt: 0.7,
   hardFailStreak: 6,
@@ -129,6 +132,13 @@ export interface ModePlan {
   llmCallsLeft: number;
 }
 
+/** Bank unused calls while releasing the daily allowance steadily up to the UTC reset. */
+function pacedLlmAllowance(now: Date, maxCalls: number): number {
+  const elapsed = (now.getTime() % UTC_DAY_MS) / UTC_DAY_MS;
+  const burst = Math.min(maxCalls, Math.max(2, Math.ceil(maxCalls * LLM_START_BURST)));
+  return Math.ceil(burst + (maxCalls - burst) * elapsed);
+}
+
 export function pickMode(
   kv: Record<string, unknown>,
   now: Date,
@@ -142,6 +152,7 @@ export function pickMode(
   const searchOut = searchFrac >= 1;
   const fetchOut = fetchFrac >= 1;
   const llmOut = llmFrac >= 1;
+  const llmCallsLeft = Math.max(0, pacedLlmAllowance(now, cfg.maxLlmCallsDay) - budget.llm_calls);
   const base = {
     budget,
     pressure,
@@ -150,7 +161,7 @@ export function pickMode(
     allowInterpreter: true,
     allowDecide: true,
     decisionIntervalMin: cfg.tickMinutes,
-    llmCallsLeft: Math.max(0, cfg.maxLlmCallsDay - budget.llm_calls),
+    llmCallsLeft,
   };
   if (budget.fail_streak >= cfg.hardFailStreak)
     return {
@@ -171,6 +182,7 @@ export function pickMode(
       allowFetch: false,
     };
   const thrifty =
+    llmCallsLeft === 0 ||
     llmFrac >= cfg.thriftyAt ||
     (!searchOut && searchFrac >= cfg.thriftyAt) ||
     (!fetchOut && fetchFrac >= cfg.thriftyAt);
@@ -178,6 +190,7 @@ export function pickMode(
     return {
       ...base,
       mode: "thrifty",
+      allowDecide: llmCallsLeft > 0,
       allowInterpreter: false,
       decisionIntervalMin: cfg.tickMinutes * 2,
     };

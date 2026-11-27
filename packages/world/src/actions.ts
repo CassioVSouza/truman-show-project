@@ -3,16 +3,24 @@
 // (facts never reach the Resident). Deterministic: draws are seeded from (seed, t, context).
 import type { Station } from "@truman/contracts";
 import { NODE_DEFS, TARGET_WORDS, WORLD_CONFIG, ITEM_DEFS, type WorldConfig } from "./config";
-import { nearestFire } from "./fire";
+import { nearestFire, useFuel } from "./fire";
 import { describeStack, findItem, foodEffects, invAdd, invCount, invRemove } from "./items";
-import { dist, insideCabin, nearestOnPolyline } from "./map";
-import { planWalk, planWalkNear, type WalkPlan } from "./path";
+import {
+  dist,
+  insideCabin,
+  nearestOnPolyline,
+  nearestOnSegment,
+  polar,
+  type WorldMap,
+} from "./map";
+import { clearWalkSegment, planWalk, planWalkNear, type WalkPlan } from "./path";
 import { nodeItem } from "./resources";
 import { rngFrom, strHash } from "./rng";
-import { mapOf } from "./world";
+import { hitsWalkObstacle, walkObstacles } from "./walkGeometry";
+import { mapOf, shelterAt, walkMapOf } from "./world";
 import { weatherAt } from "./climate";
 import { STATION_PHRASE } from "./vocab";
-import type { Fire, Inventory, NodeKind, ResourceNode, Vec, WorldState } from "./types";
+import type { Fire, Inventory, NodeKind, Pose, ResourceNode, Vec, WorldState } from "./types";
 
 export interface Actor {
   pos: Vec;
@@ -67,7 +75,7 @@ export function moveTo(
   opts: { speedFactor?: number } = {},
   cfg: WorldConfig = WORLD_CONFIG,
 ): ActionResult {
-  const map = mapOf(w, cfg);
+  const map = walkMapOf(w, cfg);
   const plan = planWalk(map, a.pos, to, opts, cfg);
   if (!plan.reached) return fail(w, a, "You cannot find a clear way there.");
   const dest = plan.points[plan.points.length - 1] as Vec;
@@ -114,7 +122,7 @@ export function gather(
   if (!all.length) return fail(w, a, "You look around but find nothing like that close by.", 2);
   if (usable.length === 0)
     return fail(w, a, "What there is here has been picked over; nothing is ready to take.", 3);
-  const map = mapOf(w, cfg);
+  const map = walkMapOf(w, cfg);
   const minimum = mode === "fish" ? map.riverWidth / 2 + 0.5 : 0;
   let chosen: { node: ResourceNode; walk: WalkPlan } | undefined;
   for (const node of usable) {
@@ -248,7 +256,7 @@ function approachWater(
   s: NonNullable<ReturnType<typeof waterSource>>,
   cfg: WorldConfig,
 ): WalkPlan {
-  const map = mapOf(w, cfg);
+  const map = walkMapOf(w, cfg);
   const waterRadius =
     s.src === "pool" ? map.pool.radius : s.src === "river" ? map.riverWidth / 2 : 0;
   return planWalkNear(map, a.pos, s.at, waterRadius + cfg.reach, cfg, s.minDistance);
@@ -415,9 +423,56 @@ export function eat(
 }
 
 // ---------------- fire ----------------
+function dryGround(map: WorldMap, p: Vec, radius: number): boolean {
+  return (
+    Math.hypot(p.x, p.z) + radius <= map.radius &&
+    dist(p, map.pool) > map.pool.radius + radius &&
+    dist(p, nearestOnPolyline(p, map.river)) > map.riverWidth / 2 + radius
+  );
+}
+
+function campfireSite(map: WorldMap, from: Vec, cfg: WorldConfig): Vec | undefined {
+  const { campRadius, campStandOff, campTreeClearance } = cfg.fire;
+  const props = walkObstacles(map, cfg, campRadius);
+  const trees = map.nodes.filter((n) => n.kind === "tree" || n.kind === "fruit_tree");
+  const door = map.stations.door;
+  const yard = map.waypoints["yard"] ?? cfg.map.yard;
+  const passageClearance = campRadius + cfg.walk.radius;
+  const start = Math.atan2(from.x, from.z);
+  for (const d of [campStandOff, (campStandOff + cfg.reach) / 2, cfg.reach]) {
+    if (d < campStandOff || d > cfg.reach) continue;
+    for (let i = 0; i < cfg.walk.cornerCount; i++) {
+      const offset = polar(start + (i * Math.PI * 2) / cfg.walk.cornerCount, d);
+      const site = { x: from.x + offset.x, z: from.z + offset.z };
+      if (
+        !insideCabin(map, site) &&
+        // Keep the single entrance and its approach from the yard passable.
+        dist(site, nearestOnSegment(site, door, yard)) > passageClearance &&
+        dryGround(map, site, campRadius) &&
+        !trees.some((tree) => dist(tree, site) <= campTreeClearance) &&
+        !props.some((prop) => hitsWalkObstacle(prop, site, site)) &&
+        clearWalkSegment(map, from, site, cfg)
+      )
+        return site;
+    }
+  }
+  return undefined;
+}
+
+function reachableFire(w: WorldState, a: Actor, reach: number, cfg: WorldConfig): Fire | undefined {
+  const indoors = insideCabin(mapOf(w, cfg), a.pos);
+  return nearestFire(
+    w.fires.filter((fire) => fire.indoors === indoors),
+    a.pos,
+    w.t,
+    reach,
+    cfg,
+  );
+}
+
 export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFIG): ActionResult {
   const fc = cfg.fire;
-  const map = mapOf(w, cfg);
+  const map = walkMapOf(w, cfg);
   if (invCount(a.inventory, "flint_steel") < 1)
     return fail(w, a, "You have nothing to strike a spark with.");
   if (invCount(a.inventory, "tinder") < 1)
@@ -426,11 +481,13 @@ export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
     return fail(w, a, "You do not have enough wood to build a fire.");
   const inside = insideCabin(map, a.pos);
   const hearth = w.fires.find((f) => f.hearth);
-  const existing = nearestFire(w.fires, a.pos, w.t, cfg.reach, cfg);
+  const existing = reachableFire(w, a, cfg.reach, cfg);
   if (existing) return fail(w, a, "A fire is already burning right here.");
   if (inside && (!hearth || dist(a.pos, hearth) > cfg.reach))
     return fail(w, a, "A fire belongs in the hearth, not on the floor.");
-  const precip = inside ? 0 : wetNow(w, cfg);
+  const site = inside ? hearth : campfireSite(map, a.pos, cfg);
+  if (!site) return fail(w, a, "You cannot find clear, dry ground within reach for the fire.");
+  const precip = inside ? 0 : wetNow(w, cfg) * (1 - shelterAt(w, site, cfg).quality);
   const p = Math.min(
     0.97,
     Math.max(
@@ -452,7 +509,10 @@ export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
     return {
       ok: false,
       minutes,
-      text: "The sparks fly but the tinder will not take.",
+      text:
+        precip > 0
+          ? "The tinder is damp here and will not catch."
+          : "The sparks fly but the tinder will not take.",
       world: w,
       actor: { ...a, inventory: inv },
       facts: { success: false, burn_risk: 0.1 },
@@ -474,8 +534,8 @@ export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
         ...w.fires,
         {
           id,
-          x: a.pos.x,
-          z: a.pos.z,
+          x: site.x,
+          z: site.z,
           fuel,
           indoors: false,
           litAt: w.t,
@@ -488,7 +548,9 @@ export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
   return {
     ok: true,
     minutes,
-    text: "The tinder catches and a small fire takes hold.",
+    text: inside
+      ? "The tinder catches and a small fire takes hold in the hearth."
+      : "The tinder catches and a small fire takes hold on the clear ground beside you.",
     world,
     actor: { ...a, inventory: inv },
     facts: { success: true, fire: id, burn_risk: 0.1 },
@@ -497,7 +559,7 @@ export function makeFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
 
 export function tendFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFIG): ActionResult {
   const fc = cfg.fire;
-  const f = nearestFire(w.fires, a.pos, w.t, cfg.reach + 1, cfg);
+  const f = reachableFire(w, a, cfg.reach + 1, cfg);
   if (!f) return fail(w, a, "There is no fire here to tend.");
   if (invCount(a.inventory, "firewood") < fc.tendLogs)
     return fail(w, a, "You have no wood to add.", 2);
@@ -515,7 +577,7 @@ export function tendFire(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFI
 
 export function boilWater(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONFIG): ActionResult {
   const fc = cfg.fire;
-  const f = nearestFire(w.fires, a.pos, w.t, cfg.reach + 1, cfg);
+  const f = reachableFire(w, a, cfg.reach + 1, cfg);
   if (!f) return fail(w, a, "You need a fire to heat water.");
   if (invCount(a.inventory, "cooking_pot") < 1)
     return fail(w, a, "You have no pot to heat water in.");
@@ -527,7 +589,7 @@ export function boilWater(w: WorldState, a: Actor, cfg: WorldConfig = WORLD_CONF
     ok: true,
     minutes: fc.boilMinutes,
     text: "You heat the water until it rolls and bubbles, then let it cool in the jar.",
-    world: setFire(w, { ...f, fuel: Math.max(0, f.fuel - fc.boilFuel) }),
+    world: setFire(w, useFuel(f, fc.boilFuel, w.t)),
     actor: { ...a, inventory: withJar(a.inventory, jar.fill, "boiled") },
     facts: { boiled: true, burn_risk: 0.1 },
   };
@@ -540,7 +602,7 @@ export function cook(
   cfg: WorldConfig = WORLD_CONFIG,
 ): ActionResult {
   const fc = cfg.fire;
-  const f = nearestFire(w.fires, a.pos, w.t, cfg.reach + 1, cfg);
+  const f = reachableFire(w, a, cfg.reach + 1, cfg);
   if (!f) return fail(w, a, "You need a fire to cook over.");
   if (invCount(a.inventory, "cooking_pot") < 1) return fail(w, a, "You have no pot to cook in.");
   const s = findItem(a.inventory, item);
@@ -551,7 +613,7 @@ export function cook(
     ok: true,
     minutes: fc.cookMinutes,
     text: `You cook ${describeStack({ item: to, qty: 1 })}.`,
-    world: setFire(w, { ...f, fuel: Math.max(0, f.fuel - fc.cookFuel) }),
+    world: setFire(w, useFuel(f, fc.cookFuel, w.t)),
     actor: { ...a, inventory: inv },
     facts: { burn_risk: 0.1, item: to },
   };
@@ -610,18 +672,41 @@ export function restSpot(
   w: WorldState,
   p: Vec,
   cfg: WorldConfig = WORLD_CONFIG,
-): { shelter: "open" | "canopy" | "cabin"; quality: number; on_bed: boolean } {
-  const map = mapOf(w, cfg);
-  const inside = insideCabin(map, p);
-  const sc = cfg.shelter;
-  let shelter: "open" | "canopy" | "cabin" = "open";
-  let quality = 0;
-  if (inside) {
-    shelter = "cabin";
-    quality = sc.cabinQuality * w.cabinIntegrity;
-  } else if (w.nodes.some((n) => n.kind === "tree" && dist(n, p) <= sc.canopyRadius)) {
-    shelter = "canopy";
-    quality = sc.canopyQuality;
+): { shelter: "open" | "canopy" | "cabin"; quality: number; on_bed: boolean; clear: boolean } {
+  const map = walkMapOf(w, cfg);
+  const { kind: shelter, quality } = shelterAt(w, p, cfg);
+  return {
+    shelter,
+    quality,
+    on_bed: shelter === "cabin" && dist(p, map.stations.bed) <= cfg.shelter.bedReach,
+    clear: clearWalkSegment(map, p, p, cfg) && dryGround(map, p, cfg.walk.radius),
+  };
+}
+
+/** Choose an unobstructed lying direction near the Resident's current facing. */
+export function restHeading(
+  w: WorldState,
+  pose: Pose,
+  cfg: WorldConfig = WORLD_CONFIG,
+): number | undefined {
+  const spot = restSpot(w, pose, cfg);
+  if (!spot.clear) return undefined;
+  if (spot.on_bed) return 0;
+  const map = walkMapOf(w, cfg);
+  for (let i = 0; i < cfg.walk.cornerCount; i++) {
+    const step = i % 2 === 0 ? -i / 2 : (i + 1) / 2;
+    const heading = pose.heading + (Math.PI * step) / cfg.walk.cornerCount;
+    const offset = polar(heading, cfg.shelter.restHalfLength);
+    const head = { x: pose.x - offset.x, z: pose.z - offset.z };
+    const feet = { x: pose.x + offset.x, z: pose.z + offset.z };
+    if (
+      insideCabin(map, head) === insideCabin(map, pose) &&
+      insideCabin(map, feet) === insideCabin(map, pose) &&
+      dryGround(map, head, cfg.walk.radius) &&
+      dryGround(map, feet, cfg.walk.radius) &&
+      clearWalkSegment(map, head, feet, cfg)
+    )
+      return heading;
   }
-  return { shelter, quality, on_bed: dist(p, map.stations.bed) <= 1.5 };
+  return undefined;
 }

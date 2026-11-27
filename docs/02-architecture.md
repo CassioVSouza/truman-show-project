@@ -2,7 +2,7 @@
 
 ## Overview
 ```
-              Cloudflare Cron (every 10 min)
+              Cloudflare Cron (every 3 min)
                          |
                          v
  +---------------- Worker "brain" -----------------+
@@ -24,7 +24,7 @@
 One Worker project serves cron and the read-only dynamic API. After a successful tick commit, the Worker publishes `live.json` to a separate Cloudflare Pages Direct Upload project (decisions 22, 23, 35 and 36). Snapshot reads use the Pages CDN. The browser reads dynamic data through the Worker. Admin routes need `ADMIN_TOKEN`.
 
 ## Time model
-The server never simulates at 60 FPS. A tick produces a **timeline** of timestamped events across the 10-minute window (walk path, sit, type, thought cue, body changes). The viewer replays and interpolates, so a visitor arriving mid-tick sees the Resident mid-action. Resident-authored text comes from the dynamic API on demand, where visibility flags apply. Gaps are filled by deterministic idle behaviour (no LLM). World clock runs at `TIME_SCALE` (default `4`, configurable `1..24`; decision 44): 4 world days pass per real day (40 world minutes per 10 real-minute cron tick) while decision ticks stay at 10 real minutes. Day/night, seasons, metabolism and actions advance in world minutes; viewer event timestamps map to real wall-clock time so the 3D viewer animates smoothly across each 10-minute window.
+The server never simulates at 60 FPS. A tick produces a **timeline** of timestamped events across a three-minute window (walk path, sit, type, thought cue, body changes). The viewer replays and interpolates, so a visitor arriving mid-tick sees the Resident mid-action. Resident-authored text comes from the dynamic API on demand, where visibility flags apply. Deterministic idle behaviour fills gaps without an LLM call. The world clock runs at `TIME_SCALE` (default `4`, configurable `1..24`). At the default speed, four world days pass per real day and 12 world minutes pass per three-minute cron interval (decisions 44 and 47). Day/night, seasons, metabolism and actions advance in world minutes. The viewer uses event timestamps in real wall-clock time.
 
 ## Tick pipeline
 1. **Lease** (row in `kv` with expiry) so overlapping runs do nothing.

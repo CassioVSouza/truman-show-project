@@ -1,5 +1,5 @@
 import type { Event, Snapshot } from "@truman/contracts";
-import { generateMap, insideCabin, type WorldMap } from "@truman/world";
+import { generateMap, insideCabin, WORLD_CONFIG, type WorldMap } from "@truman/world";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -9,6 +9,8 @@ import {
   type TimelineState,
   type TimeOfDay,
 } from "../state/timeline";
+import { FireProps } from "./fireProps";
+import { restPose } from "./restPose";
 import {
   intersectsSceneryCorridor,
   sceneryCorridors,
@@ -144,8 +146,7 @@ export class WorldScene {
   private readonly worldGroup = new THREE.Group();
   private readonly character: CharacterRig;
 
-  private fireLight: THREE.PointLight | null = null;
-  private fireFlames: THREE.Mesh[] = [];
+  private readonly fireProps = new Map<string, FireProps>();
   private waterMeshes: THREE.Mesh[] = [];
   private precipPoints: THREE.Points | null = null;
   private precipKind: "none" | "rain" | "snow" = "none";
@@ -222,7 +223,7 @@ export class WorldScene {
       this.currentMap = generateMap(seed);
       this.rebuildWorld(this.currentMap);
     }
-    const corridors = sceneryCorridors(this.currentMap, snapshot.resident.pose, events);
+    const corridors = sceneryCorridors(this.currentMap, snapshot, events);
     for (const { meshes, footprints, hiddenTransforms } of this.sceneryBatches) {
       footprints.forEach((footprint, index) => {
         const hidden = intersectsSceneryCorridor(footprint, corridors);
@@ -281,13 +282,14 @@ export class WorldScene {
       this.controls.target.set(p.x, 1.0, p.z);
     }
     this.applyAtmosphere(state.timeOfDay, state.weather);
-    this.applyFireVisual(state.fire.state);
+    this.applyFireVisuals(state.fires);
   }
 
   dispose(): void {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     this.resizeObserver.disconnect();
     this.controls.dispose();
+    this.clearFireProps();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode === this.container) {
       this.container.removeChild(this.renderer.domElement);
@@ -316,11 +318,10 @@ export class WorldScene {
   }
 
   private rebuildWorld(map: WorldMap): void {
+    this.clearFireProps();
     while (this.worldGroup.children.length > 0) {
       this.worldGroup.remove(this.worldGroup.children[0]!);
     }
-    this.fireFlames = [];
-    this.fireLight = null;
     this.waterMeshes = [];
     this.sceneryBatches.length = 0;
 
@@ -747,20 +748,6 @@ export class WorldScene {
     hearthBase.position.set(hPos.x, CABIN_FLOOR_HEIGHT + 0.21, hPos.z);
     hearthBase.castShadow = true;
     cabinGroup.add(hearthBase);
-
-    const flameMat1 = new THREE.MeshBasicMaterial({ color: 0xff8a2b });
-    const flameMat2 = new THREE.MeshBasicMaterial({ color: 0xffd15c });
-    const flame1 = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.46, 6), flameMat1);
-    flame1.position.set(hPos.x, CABIN_FLOOR_HEIGHT + 0.58, hPos.z);
-    const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.34, 5), flameMat2);
-    flame2.position.set(hPos.x + 0.05, CABIN_FLOOR_HEIGHT + 0.54, hPos.z - 0.04);
-    cabinGroup.add(flame1, flame2);
-    this.fireFlames.push(flame1, flame2);
-
-    const fLight = new THREE.PointLight(0xff9438, 2.2, 9.5, 1.8);
-    fLight.position.set(hPos.x, 1.0, hPos.z);
-    cabinGroup.add(fLight);
-    this.fireLight = fLight;
 
     this.worldGroup.add(cabinGroup);
   }
@@ -1814,17 +1801,31 @@ export class WorldScene {
     this.scene.add(this.precipPoints);
   }
 
-  private applyFireVisual(fireState: TimelineState["fire"]["state"]): void {
-    const visible = fireState !== "out";
-    const scale =
-      fireState === "burning" ? 1 : fireState === "lit" ? 0.75 : fireState === "dying" ? 0.45 : 0;
-    for (const f of this.fireFlames) {
-      f.visible = visible;
-      f.scale.set(scale, scale, scale);
+  private clearFireProps(): void {
+    for (const props of this.fireProps.values()) props.dispose();
+    this.fireProps.clear();
+  }
+
+  private applyFireVisuals(fires: TimelineState["fires"]): void {
+    const present = new Set<string>();
+    const hearth = this.currentMap?.hearth;
+    for (const fire of fires) {
+      present.add(fire.id);
+      let props = this.fireProps.get(fire.id);
+      if (!props) {
+        const atHearth =
+          fire.id === "hearth_fire" || (fire.x === hearth?.x && fire.z === hearth?.z);
+        props = new FireProps(atHearth);
+        this.worldGroup.add(props.root);
+        this.fireProps.set(fire.id, props);
+      }
+      props.root.position.set(fire.x, this.getFloorY(fire.x, fire.z), fire.z);
+      props.applyState(fire.state);
     }
-    if (this.fireLight) {
-      this.fireLight.intensity =
-        fireState === "burning" ? 2.2 : fireState === "lit" ? 1.4 : fireState === "dying" ? 0.7 : 0;
+    for (const [id, props] of this.fireProps) {
+      if (present.has(id)) continue;
+      props.dispose();
+      this.fireProps.delete(id);
     }
   }
 
@@ -1851,6 +1852,7 @@ export class WorldScene {
     // Sample the recorded polyline between timeline updates. Easing x/z toward the last
     // sampled pose cuts across bends and can cross objects the walk routes around.
     let target = state.pose;
+    let onBed = false;
     const walk = state.walk;
     if (walk) {
       const elapsed = Math.max(0, Math.min(TIMELINE_SAMPLE_MS, now - this.latestStateReceivedAt));
@@ -1859,9 +1861,10 @@ export class WorldScene {
         walk.waypoints,
         (atMs - walk.startMs) / Math.max(1, walk.endMs - walk.startMs),
       );
-    } else if (state.poseAnim === "sleep" && state.station === "bed" && this.currentMap) {
-      // The walk ends beside the bed. The sleeping animation lies on its mattress.
-      target = { ...this.currentMap.stations.bed, heading: 0 };
+    } else if (state.poseAnim === "sleep" && this.currentMap) {
+      const placement = restPose(this.currentMap, state);
+      target = placement;
+      onBed = placement.onBed;
     }
     root.position.set(target.x, this.getFloorY(target.x, target.z), target.z);
 
@@ -1869,7 +1872,7 @@ export class WorldScene {
     let dAngle = target.heading - root.rotation.y;
     while (dAngle > Math.PI) dAngle -= Math.PI * 2;
     while (dAngle < -Math.PI) dAngle += Math.PI * 2;
-    root.rotation.y += dAngle * lerpAlpha;
+    root.rotation.y += dAngle * (state.poseAnim === "sleep" ? 1 : lerpAlpha);
 
     // Breathing driven by physiology breath_rate (breaths/min)
     const breathHz = Math.max(6, Math.min(35, state.physiology.breath_rate)) / 60;
@@ -1900,8 +1903,7 @@ export class WorldScene {
       rightLeg.rotation.x = 0;
       memorialGlow.intensity = 1.4;
     } else if (pose === "sleep") {
-      // Resting cleanly atop the bed mattress/blanket (floorY 0.16 + 0.50 - 0.13 back = 0.53)
-      bodyGroup.position.set(0, 0.5, 0.78);
+      bodyGroup.position.set(0, onBed ? 0.5 : 0.18, WORLD_CONFIG.shelter.restHalfLength);
       bodyGroup.rotation.x = -Math.PI / 2;
       leftArm.rotation.x = 0.06;
       rightArm.rotation.x = 0.06;
@@ -1989,14 +1991,7 @@ export class WorldScene {
 
       this.animateCharacter(now, dt);
 
-      // Flicker fire flames
-      if (this.fireFlames.length > 0 && this.latestState && this.latestState.fire.state !== "out") {
-        const flicker = 0.92 + Math.sin(this.animClock * 15) * 0.1;
-        this.fireFlames.forEach((f, idx) => {
-          f.rotation.y = this.animClock * (idx === 0 ? 1.8 : -2.3);
-          f.scale.y = Math.max(0.2, f.scale.x * flicker);
-        });
-      }
+      for (const props of this.fireProps.values()) props.flicker(this.animClock);
 
       // Subtle water surface shimmer
       if (this.waterMeshes.length > 0) {

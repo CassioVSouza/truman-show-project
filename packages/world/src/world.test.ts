@@ -6,7 +6,7 @@ import { advanceInventory, starterInventory } from "./items";
 import { generateMap, insideCabin } from "./map";
 import { planWalk, positionAlong, walkTimeline } from "./path";
 import type { Fire, WorldState } from "./types";
-import { advance, createWorld, environmentAt } from "./world";
+import { advance, createWorld, environmentAt, fireTimeline } from "./world";
 
 const DAY = 1440;
 const lit = (w: WorldState, outdoors = false): WorldState => {
@@ -104,6 +104,20 @@ describe("world advance", () => {
     w = advance(w, 400);
     expect(fireState(f(), w.t)).toBe("out");
     expect(f().outAt).toBeCloseTo(300, 2);
+  });
+  test("fire timeline gives exact visual transitions and matches weather-driven burn-out", () => {
+    const indoors = lit(createWorld(11));
+    expect(fireTimeline(indoors, 400).map(({ t, state }) => ({ t, state }))).toEqual([
+      { t: 10, state: "burning" },
+      { t: 280, state: "dying" },
+      { t: 300, state: "out" },
+    ]);
+    const outdoors = lit(createWorld(1), true);
+    const final = advance(outdoors, 810);
+    const changes = fireTimeline(outdoors, 810);
+    expect(changes.at(-1)).toMatchObject({ state: "out", t: final.fires[1]!.outAt });
+    expect(changes.filter((x) => x.state === "out")).toHaveLength(1);
+    expect(changes.at(-1)!.t).toBeLessThan(800);
   });
   test("gentle start: nodes begin at 1.5x and settle to capacity", () => {
     const w = createWorld(11);

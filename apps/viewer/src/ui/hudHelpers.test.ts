@@ -19,20 +19,20 @@ describe("hudHelpers", () => {
       formatDecisionCountdown(
         {
           lastTickIso: isoAt(0),
-          nowMs: BASE_MS + 4 * 60_000,
+          nowMs: BASE_MS + 60_000,
           feedState: "live",
           status: "running",
           alive: true,
         },
         "en",
       ),
-    ).toEqual({ tone: "live", text: "Next decision ~6m" });
+    ).toEqual({ tone: "live", text: "Next decision ~2m" });
 
     expect(
       formatDecisionCountdown(
         {
           lastTickIso: isoAt(0),
-          nowMs: BASE_MS + 9 * 60_000 + 35_000,
+          nowMs: BASE_MS + 2 * 60_000 + 35_000,
           feedState: "live",
           status: "running",
           alive: true,
@@ -45,7 +45,7 @@ describe("hudHelpers", () => {
       formatDecisionCountdown(
         {
           lastTickIso: isoAt(0),
-          nowMs: BASE_MS + 11 * 60_000,
+          nowMs: BASE_MS + 3 * 60_000,
           feedState: "live",
           status: "running",
           alive: true,
@@ -65,7 +65,7 @@ describe("hudHelpers", () => {
         },
         "pt-BR",
       ),
-    ).toEqual({ tone: "demo", text: "Ciclo 10m" });
+    ).toEqual({ tone: "demo", text: "Ciclo 3m" });
 
     expect(
       formatDecisionCountdown(

@@ -22,7 +22,7 @@ Each entry carries: `id`, `seq`, `ts`, `tick_id`, `kind`, `category` (`life` | `
 Technical content is isolated from life content. The Lab is a separate section (`/lab/*`), reachable from a clearly marked toggle.
 
 ### Life (default experience)
-- **Live**: 3D room, thought bubble, body panel (heartbeat, breath), now-doing line.
+- **Live**: 3D world, thought bubble, body panel (heartbeat, breath), now-doing line, and a three-minute decision cadence indicator. Outdoor campfires render at their logged locations alongside the cabin hearth.
 - **Journal**: entries in own words (EN/PT).
 - **Thoughts**: stream of thoughts with intent and what it expected.
 - **Ideas**: ideas and questions it generated, with status (explored / open).

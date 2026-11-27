@@ -32,6 +32,11 @@ export function burn(f: Fire, from: number, to: number, rate: number): Fire {
   return { ...f, fuel: f.fuel - dt * rate };
 }
 
+export function useFuel(f: Fire, fuel: number, t: number): Fire {
+  const remaining = Math.max(0, f.fuel - fuel);
+  return { ...f, fuel: remaining, outAt: remaining === 0 ? t : null };
+}
+
 export function nearestFire(
   fires: Fire[],
   p: Vec,

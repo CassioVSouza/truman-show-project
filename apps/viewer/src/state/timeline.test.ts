@@ -131,7 +131,7 @@ describe("evaluateTimeline", () => {
     expect(st.thought).toBe("The rain is tapping on the roof.");
   });
 
-  it("uses the snapshot sky and hearth during a quiet window", () => {
+  it("uses the snapshot sky with no fires during a quiet window", () => {
     const snapshot = {
       ...DEMO_SNAPSHOT,
       world: {
@@ -142,7 +142,108 @@ describe("evaluateTimeline", () => {
     };
     const state = evaluateTimeline(snapshot, [], T0);
     expect(state.timeOfDay).toBe("night");
-    expect(state.fire.state).toBe("out");
+    expect(state.fires).toEqual([]);
+  });
+
+  it("tracks the hearth and multiple outdoor fires independently through ignition and burnout", () => {
+    const snapshot = {
+      ...DEMO_SNAPSHOT,
+      generated_at: iso(0),
+      world: {
+        ...DEMO_SNAPSHOT.world,
+        entities: [
+          ...DEMO_SNAPSHOT.world.entities,
+          { id: "fire_2", type: "fire", x: 4, z: -25, appearance: { state: "dying" } },
+        ],
+      },
+    };
+    const transition = (
+      sequence: number,
+      at: number,
+      data: Extract<Event, { kind: "fire" }>["data"],
+    ): Event => ({
+      v: SCHEMA_VERSION,
+      seq: sequence,
+      t_start: iso(at),
+      t_end: iso(at),
+      actor: "world",
+      kind: "fire",
+      data,
+      log_id: null,
+    });
+    const events = [
+      transition(1, -5, { id: "hearth_fire", state: "out", x: 2, z: 0.7 }),
+      transition(2, 5, { id: "fire_3", state: "lit", x: 3, z: -23 }),
+      transition(3, 10, { state: "out", x: 4, z: -25 }),
+    ];
+    expect(evaluateTimeline(snapshot, events, T0).fires).toMatchObject([
+      { id: "hearth_fire", state: "burning", x: 2, z: 0.7 },
+      { id: "fire_2", state: "dying", x: 4, z: -25 },
+    ]);
+    expect(evaluateTimeline(snapshot, events, T0 + 5_000).fires).toMatchObject([
+      { id: "hearth_fire", state: "burning" },
+      { id: "fire_2", state: "dying" },
+      { id: "fire_3", state: "lit", x: 3, z: -23 },
+    ]);
+    expect(evaluateTimeline(snapshot, events, T0 + 10_000).fires).toMatchObject([
+      { id: "hearth_fire", state: "burning" },
+      { id: "fire_2", state: "out", x: 4, z: -25 },
+      { id: "fire_3", state: "lit" },
+    ]);
+  });
+
+  it("places old fire events without an entity ID", () => {
+    const event: Event = {
+      v: SCHEMA_VERSION,
+      seq: 1,
+      t_start: iso(5),
+      t_end: iso(5),
+      actor: "world",
+      kind: "fire",
+      data: { state: "burning", x: 3, z: -23 },
+      log_id: null,
+    };
+    const snapshot = { ...DEMO_SNAPSHOT, generated_at: iso(0) };
+    expect(evaluateTimeline(snapshot, [event], T0 + 5_000).fires).toContainEqual({
+      id: "fire_at_3_-23",
+      state: "burning",
+      x: 3,
+      z: -23,
+    });
+  });
+
+  it("carries the resting position metadata until waking", () => {
+    const snapshot = { ...DEMO_SNAPSHOT, generated_at: iso(0) };
+    const events: Event[] = [
+      {
+        v: SCHEMA_VERSION,
+        seq: 1,
+        t_start: iso(2),
+        t_end: iso(10),
+        actor: "resident",
+        kind: "sleep_start",
+        data: { on_bed: false, heading: Math.PI / 2 },
+        log_id: null,
+      },
+      {
+        v: SCHEMA_VERSION,
+        seq: 2,
+        t_start: iso(10),
+        t_end: iso(10),
+        actor: "resident",
+        kind: "sleep_end",
+        data: {},
+        log_id: null,
+      },
+    ];
+    expect(evaluateTimeline(snapshot, events, T0 + 5_000)).toMatchObject({
+      poseAnim: "sleep",
+      restPlacement: { onBed: false, heading: Math.PI / 2 },
+    });
+    expect(evaluateTimeline(snapshot, events, T0 + 10_000)).toMatchObject({
+      poseAnim: "idle",
+      restPlacement: null,
+    });
   });
 
   it("shows a link-only thought alongside an active action and clears it at expiry", () => {

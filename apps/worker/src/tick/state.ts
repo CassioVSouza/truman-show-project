@@ -5,6 +5,7 @@ import type { Station } from "@truman/contracts";
 import {
   createWorld,
   mapOf,
+  recoverWalkPosition,
   starterInventory,
   type Inventory,
   type Pose,
@@ -42,6 +43,8 @@ export interface MindState {
   seed: number;
   born_ms: number;
   world: WorldState;
+  /** Fire state at the start of the last simulated macro-action, for mid-action snapshots. */
+  actionFireStart?: Pick<WorldState, "t" | "fires">;
   body: BodyState;
   organism: OrganismRun;
   physiology: Physiology | null;
@@ -65,7 +68,7 @@ export interface MindState {
   prev_key: string | null;
   /** Minutes since genesis of the last Resident decision (world minutes). */
   last_decision_t: number;
-  /** Real wall-clock ms of the last Resident decision (keeps decision cadence in real minutes across scale changes). */
+  /** Last decision's real wall-clock time, using the nominal slot for scheduled ticks. */
   last_decision_ms?: number;
   /** Real wall-clock ms at which `clock_anchor_t` occurred. Absent on legacy 1x blobs (defaults to `born_ms`). */
   clock_anchor_ms?: number;
@@ -82,6 +85,7 @@ export const QUESTION_CAP = 6;
 export function genesis(seed: number, bornMs: number, timeScale = DEFAULT_TIME_SCALE): MindState {
   const world = createWorld(seed);
   const map = mapOf(world);
+  const bedside = recoverWalkPosition(map, map.stations.bed) ?? map.stations.bed;
   return {
     v: 1,
     seed,
@@ -90,7 +94,7 @@ export function genesis(seed: number, bornMs: number, timeScale = DEFAULT_TIME_S
     body: newBody({ seed, birth_ms: bornMs }),
     organism: newOrganism(seed),
     physiology: null,
-    pos: { ...map.stations.bed, heading: 0 },
+    pos: { ...bedside, heading: 0 },
     station: "bed",
     inventory: starterInventory(),
     skills: { ...STARTING_SKILLS },

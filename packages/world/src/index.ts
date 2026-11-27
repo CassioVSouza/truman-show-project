@@ -25,7 +25,13 @@ export {
 export type { Weather, Clock } from "./climate";
 export { generateMap, dist, insideCabin, nearestOnSegment } from "./map";
 export type { WorldMap } from "./map";
-export { planWalk, walkTimeline, positionAlong, walkableTrailSegments } from "./path";
+export {
+  planWalk,
+  walkTimeline,
+  positionAlong,
+  walkableTrailSegments,
+  recoverWalkPosition,
+} from "./path";
 export type { WalkPlan } from "./path";
 export {
   advanceInventory,
@@ -42,7 +48,15 @@ export {
 } from "./items";
 export type { FoodEffects } from "./items";
 export { fireState } from "./fire";
-export { createWorld, advance, environmentAt, shelterAt, mapOf } from "./world";
+export {
+  createWorld,
+  advance,
+  environmentAt,
+  shelterAt,
+  mapOf,
+  walkMapOf,
+  fireTimeline,
+} from "./world";
 export { perceive, lookAt, occupancyGrid, bearingDeg, visibleRange } from "./perception";
 export type { Perception } from "./perception";
 export {
@@ -61,5 +75,6 @@ export {
   wear,
   repairShelter,
   restSpot,
+  restHeading,
 } from "./actions";
 export type { Actor, ActionResult, Facts } from "./actions";
