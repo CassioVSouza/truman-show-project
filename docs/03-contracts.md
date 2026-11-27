@@ -34,7 +34,7 @@ Each `fire` event carries a state and world coordinates. New fire events also in
 
 ## 7. Public API (read-only, GET, JSON, via Worker, edge-cached)
 
-The static Pages host serves `GET /live.json`, a single JSON object with `snapshot`, `events` and `status`. The bundle contains public world and Resident display state, event timing and movement, and log references. Read Resident-authored text through the dynamic routes below so that hide flags apply.
+The static Pages host serves `GET /live.json`, a single JSON object with `snapshot`, `events`, `status` and optional `replay_snapshots`. The replay snapshots hold public display state at up to 12 tick starts across the most recent 30 minutes. The bundle includes up to 200 events and covers ongoing spans. Optional `status.next_tick_at` gives the next scheduled tick, and optional `status.next_decision_at` estimates the earliest eligible decision slot given the current action and governor budget. A null decision time means the Worker has no estimate. The bundle contains log references. Read Resident-authored text through the dynamic routes below so that hide flags apply.
 
 | Route | Returns | Cache |
 |---|---|---|

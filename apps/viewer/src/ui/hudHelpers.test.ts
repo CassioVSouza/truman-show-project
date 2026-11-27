@@ -113,6 +113,29 @@ describe("hudHelpers", () => {
     expect(night.text).toContain("Dia 2");
   });
 
+  it("uses the forecast slot instead of the last tick and shows a waiting state after it passes", () => {
+    const input = {
+      lastTickIso: isoAt(15),
+      nextDecisionIso: isoAt(360),
+      nowMs: BASE_MS + 320_000,
+      feedState: "live",
+      status: "running",
+      alive: true,
+    };
+    expect(formatDecisionCountdown(input, "en")).toEqual({
+      tone: "live",
+      text: "Next decision ~40s",
+    });
+    expect(formatDecisionCountdown({ ...input, nowMs: BASE_MS + 360_000 }, "en")).toEqual({
+      tone: "due",
+      text: "Awaiting decision update",
+    });
+    expect(formatDecisionCountdown({ ...input, nextDecisionIso: null }, "pt-BR")).toEqual({
+      tone: "demo",
+      text: "Horário da decisão indisponível",
+    });
+  });
+
   it("maps timeline events to color-coded markers and deduplicates close markers by priority", () => {
     const events: Event[] = [
       {
@@ -209,6 +232,44 @@ describe("hudHelpers", () => {
     });
   });
 
+  it("keeps markers from multiple decisions and gives playback priority over a same-time thinking cue", () => {
+    const events: Event[] = [
+      {
+        v: SCHEMA_VERSION,
+        actor: "resident",
+        kind: "anim",
+        seq: 1,
+        t_start: isoAt(0),
+        t_end: isoAt(5),
+        data: { name: "thinking" },
+        log_id: null,
+      },
+      {
+        v: SCHEMA_VERSION,
+        actor: "resident",
+        kind: "anim",
+        seq: 2,
+        t_start: isoAt(180),
+        t_end: isoAt(185),
+        data: { name: "thinking" },
+        log_id: null,
+      },
+      {
+        v: SCHEMA_VERSION,
+        actor: "resident",
+        kind: "anim",
+        seq: 3,
+        t_start: isoAt(180),
+        t_end: isoAt(195),
+        data: { name: "make_fire" },
+        log_id: null,
+      },
+    ];
+    expect(
+      buildTimelineMarkers(events, BASE_MS, BASE_MS + 360_000).map((marker) => marker.seq),
+    ).toEqual([1, 3]);
+  });
+
   it("extracts up to 3 most recent meaningful activity items up to playhead", () => {
     const events: Event[] = [
       {
@@ -280,6 +341,7 @@ describe("hudHelpers", () => {
     // Ignored when typing inside inputs (except Escape and Ctrl/Cmd+K)
     expect(resolveShortcut({ key: "1", target: { tagName: "INPUT" } })).toBeNull();
     expect(resolveShortcut({ key: " ", target: { tagName: "TEXTAREA" } })).toBeNull();
+    expect(resolveShortcut({ key: " ", target: { tagName: "BUTTON" } })).toBeNull();
     expect(resolveShortcut({ key: "h", target: { tagName: "INPUT" } })).toBeNull();
     expect(resolveShortcut({ key: "/", target: { tagName: "INPUT" } })).toBeNull();
     expect(resolveShortcut({ key: "k", metaKey: true, target: { tagName: "INPUT" } })).toBe(

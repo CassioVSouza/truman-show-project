@@ -1,4 +1,4 @@
-import { LiveFeed } from "@truman/contracts";
+import { LiveFeed, MAX_REPLAY_SNAPSHOTS } from "@truman/contracts";
 import { advance } from "@truman/world";
 import { describe, expect, test, vi } from "vitest";
 import { SupabaseDb } from "../db/supabase";
@@ -6,7 +6,7 @@ import type { TickPayload } from "../db/types";
 import { runLiveTick } from "../index";
 import { FakeProvider } from "../llm";
 import { genesis } from "../tick";
-import { createSnapshotPublisher } from "./index";
+import { createSnapshotPublisher, projectReplaySnapshot, retainReplaySnapshots } from "./index";
 
 const started = new Date("2026-11-26T12:00:00.000Z");
 const env = {
@@ -50,17 +50,24 @@ describe("public snapshot projection", () => {
       event(9, "world", { weather: "rain", time_of_day: "dusk" }),
       event(8, "sleep_start", {}),
       event(7, "thought", { text: privateText }),
-      { ...event(6, "thought", {}), entry: { hidden: true } },
+      {
+        ...event(6, "thought", {}),
+        t_end: "2026-11-26T11:57:00+00:00",
+        entry: { hidden: true },
+      },
       event(5, "journal", { preview: privateText }),
       event(4, "web_visit", { url: "https://private.test/", title: privateText }),
       event(3, "anim", { name: privateText }),
-      event(2, "walk", {
-        waypoints: [
-          { x: 0, z: 1 },
-          { x: 2, z: 3 },
-        ],
-        speed: 1,
-      }),
+      {
+        ...event(2, "walk", {
+          waypoints: [
+            { x: 0, z: 1 },
+            { x: 2, z: 3 },
+          ],
+          speed: 1,
+        }),
+        t_end: "2026-11-26T11:57:00+00:00",
+      },
       {
         ...event(1, "status", { status: "running", reason: privateText }),
         log_id: null,
@@ -82,7 +89,10 @@ describe("public snapshot projection", () => {
       lastTickAt: "2026-11-26T12:00:00+00:00",
     });
 
-    expect(readEvents).toHaveBeenCalledExactlyOnceWith(started, new Date("2026-11-26T12:10:00Z"));
+    expect(readEvents).toHaveBeenCalledExactlyOnceWith(
+      new Date("2026-11-26T11:30:00Z"),
+      new Date("2026-11-26T12:10:00Z"),
+    );
     expect(write).toHaveBeenCalledOnce();
     const feed = LiveFeed.parse(write.mock.calls[0]?.[0]);
     expect(feed.snapshot).toMatchObject({
@@ -106,15 +116,34 @@ describe("public snapshot projection", () => {
       [9, "world"],
     ]);
     expect(feed.events[4]).toMatchObject({ log_id: 27, data: { name: "thinking" } });
+    expect(feed.events[1]).toMatchObject({ kind: "walk", t_end: "2026-11-26T11:57:00.000Z" });
     expect(feed.events[5]).toMatchObject({
       t_start: "2026-11-26T11:55:00.000Z",
       t_end: "2026-11-26T12:30:00.000Z",
     });
     const content = JSON.stringify(feed);
+    expect(feed.replay_snapshots).toBeUndefined();
+    expect(feed.status.next_decision_at).toBeUndefined();
     expect(content).not.toContain(privateText);
     expect(content).not.toContain("private.test");
     expect(content).not.toContain("temperament");
     expect(content).not.toContain("lookalike");
+  });
+
+  test("bounds tick anchors by lookback and count", () => {
+    const mind = genesis(17, started.getTime() - 60_000);
+    const anchor = (minutesAgo: number) =>
+      projectReplaySnapshot(mind, new Date(started.getTime() - minutesAgo * 60_000), "running");
+    const latest = anchor(0);
+    const inclusiveCutoff = anchor(30);
+    expect(retainReplaySnapshots([anchor(31), inclusiveCutoff, latest], latest)).toEqual([
+      inclusiveCutoff,
+      latest,
+    ]);
+    const recent = Array.from({ length: 30 }, (_, i) => anchor(30 - i));
+    const result = retainReplaySnapshots(recent, latest);
+    expect(result).toHaveLength(MAX_REPLAY_SNAPSHOTS);
+    expect(result[0]).toEqual(anchor(MAX_REPLAY_SNAPSHOTS - 1));
   });
 
   test("ongoing macro-actions expose the fire state at playback time, with stable fire identifiers", async () => {
@@ -167,6 +196,9 @@ function wiring(
 ) {
   const calls: string[] = [];
   const committed: TickPayload[] = [];
+  const requests: URL[] = [];
+  const kv: Record<string, unknown> = { world_seed: 17 };
+  let resident: Record<string, unknown> = { phase: "unaware", status: "running" };
   const lease = {
     acquire: async () => {
       calls.push("acquire");
@@ -183,32 +215,41 @@ function wiring(
     const url = new URL(input);
     switch (url.pathname) {
       case "/rest/v1/resident":
-        return Response.json([{ phase: "unaware", status: "running" }]);
+        return Response.json([resident]);
       case "/rest/v1/kv":
-        return Response.json([{ key: "world_seed", value: 17 }]);
+        return Response.json(Object.entries(kv).map(([key, value]) => ({ key, value })));
       case "/rest/v1/rpc/tick_commit": {
         const { payload } = JSON.parse(String(init?.body)) as { payload: TickPayload };
         calls.push(payload.tick.mode === "failed" ? "failed-commit" : "commit");
         if (failCommit && payload.tick.mode !== "failed") return Response.json({}, { status: 500 });
         committed.push(payload);
-        return Response.json({ tick_id: 25, log_ids: {} });
+        Object.assign(kv, payload.kv);
+        resident = { ...resident, ...payload.resident };
+        return Response.json({ tick_id: 24 + committed.length, log_ids: {} });
       }
       case "/rest/v1/events":
         calls.push("read");
-        expect(url.searchParams.get("select")).toContain("entry:log_entries(hidden)");
-        expect(url.searchParams.get("t_end")).toBe("gte.2026-11-26T12:00:00.000Z");
-        expect(url.searchParams.get("t_start")).toBe("lte.2026-11-26T12:03:00.000Z");
+        requests.push(url);
         return Response.json([]);
       default:
         throw new Error("unexpected request");
     }
   });
-  return { calls, committed, db, lease, provider, failCommit: () => (failCommit = true) };
+  return {
+    calls,
+    committed,
+    requests,
+    db,
+    kv,
+    lease,
+    provider,
+    failCommit: () => (failCommit = true),
+  };
 }
 
 describe("tick publication", () => {
   test("publishes within the lease, after the one batched commit", async () => {
-    const { calls, db, lease, provider } = wiring();
+    const { calls, db, lease, provider, requests } = wiring();
     const result = await runLiveTick(env, {
       db,
       lease,
@@ -222,6 +263,11 @@ describe("tick publication", () => {
     expect(result).toMatchObject({ ran: true, tick_id: 25 });
     expect(calls).toEqual(["acquire", "commit", "read", "publish", "release"]);
     expect(db.subrequests).toBe(4);
+    const query = requests[0]?.searchParams;
+    expect(query?.get("select")).toContain("entry:log_entries(hidden)");
+    expect(query?.get("t_end")).toBe("gte.2026-11-26T11:30:00.000Z");
+    expect(query?.get("t_start")).toBe("lte.2026-11-26T12:03:00.000Z");
+    expect(query?.get("limit")).toBe("200");
   });
 
   test("anchors the snapshot pose at the beginning of a new walk, not the committed destination", async () => {
@@ -255,6 +301,69 @@ describe("tick publication", () => {
       x: committed[0]?.resident?.["x"],
       z: committed[0]?.resident?.["z"],
     });
+  });
+
+  test("keeps authoritative anchors across ticks and advertises the nominal schedule", async () => {
+    const { committed, db, kv, lease, provider } = wiring({
+      type: "move_to",
+      station: "river",
+      thought: "I can see the river.",
+      intent: "Go to the water.",
+      expectation: "I will arrive at the bank.",
+    });
+    const writeSnapshot = vi.fn<(feed: LiveFeed) => Promise<void>>(async () => undefined);
+    const nominal = started.getTime();
+    for (const [minute, jitter] of [
+      [0, 19_495],
+      [3, 3_000],
+    ] as const) {
+      const scheduledAtMs = nominal + minute * 60_000;
+      await runLiveTick(env, {
+        db,
+        lease,
+        providers: [provider],
+        now: () => new Date(scheduledAtMs + jitter),
+        scheduledAtMs,
+        writeSnapshot,
+      });
+    }
+
+    const first = LiveFeed.parse(writeSnapshot.mock.calls[0]?.[0]);
+    const second = LiveFeed.parse(writeSnapshot.mock.calls[1]?.[0]);
+    expect(first.snapshot.generated_at).toBe("2026-11-26T12:00:19.495Z");
+    expect(first.status.next_tick_at).toBe("2026-11-26T12:03:00.000Z");
+    expect(first.status.next_decision_at).toBe(first.status.next_tick_at);
+    expect(second.status.next_decision_at).toBe("2026-11-26T12:06:00.000Z");
+    const anchors = second.replay_snapshots!;
+    expect(anchors).toHaveLength(2);
+    expect(anchors[0]?.resident.pose).toEqual(first.snapshot.resident.pose);
+    expect(anchors[1]?.resident).toMatchObject({
+      pose: { x: committed[0]?.resident?.["x"], z: committed[0]?.resident?.["z"] },
+      station: "river",
+    });
+    expect(anchors.map((frame) => frame.generated_at)).toEqual([
+      first.snapshot.generated_at,
+      second.snapshot.generated_at,
+    ]);
+    expect(kv["replay_snapshots"]).toEqual(anchors);
+    expect(anchors[0]?.resident).not.toHaveProperty("inventory");
+    expect(anchors[1]?.world.entities.every(({ type }) => type === "fire")).toBe(true);
+  });
+
+  test("paused ticks preserve history and publish an unset decision estimate", async () => {
+    const { db, kv, lease, provider } = wiring();
+    const writeSnapshot = vi.fn<(feed: LiveFeed) => Promise<void>>(async () => undefined);
+    const options = { db, lease, providers: [provider], writeSnapshot };
+    await runLiveTick(env, { ...options, now: () => started });
+    kv["paused"] = true;
+    await runLiveTick(env, { ...options, now: () => new Date(started.getTime() + 180_000) });
+    const paused = LiveFeed.parse(writeSnapshot.mock.calls[1]?.[0]);
+    expect(paused.status).toMatchObject({
+      status: "paused",
+      next_tick_at: "2026-11-26T12:06:00.000Z",
+      next_decision_at: null,
+    });
+    expect(paused.replay_snapshots).toHaveLength(2);
   });
 
   test("a publishing failure leaves the commit successful and emits a scrubbed diagnostic", async () => {

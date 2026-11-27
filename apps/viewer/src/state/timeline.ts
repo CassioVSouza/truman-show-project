@@ -1,4 +1,4 @@
-import type { Event, Physiology, Snapshot, Station } from "@truman/contracts";
+import type { Event, Physiology, ReplaySnapshot, Snapshot, Station } from "@truman/contracts";
 
 export const TIMELINE_SAMPLE_MS = 250;
 
@@ -40,6 +40,11 @@ export interface TimelineState {
   alive: boolean;
   causeOfDeath: string | null;
   status: string;
+}
+
+export interface TimelineBounds {
+  startMs: number;
+  endMs: number;
 }
 
 function parseMs(iso: string): number {
@@ -120,10 +125,7 @@ function mapAnimNameToPose(name: string, station: Station | null): CharacterPose
   return "idle";
 }
 
-export function getTimelineBounds(
-  snapshot: Snapshot,
-  events: readonly Event[],
-): { startMs: number; endMs: number } {
+export function getTimelineBounds(snapshot: Snapshot, events: readonly Event[]): TimelineBounds {
   const snapMs = parseMs(snapshot.generated_at);
   if (events.length === 0) {
     return { startMs: snapMs, endMs: snapMs + 60_000 };
@@ -142,6 +144,34 @@ export function getTimelineBounds(
   return { startMs, endMs };
 }
 
+/** Restore the public state at the start of the scrubbed tick. */
+export function snapshotAt(
+  latest: Snapshot,
+  anchors: readonly ReplaySnapshot[],
+  atMs: number,
+): Snapshot {
+  let anchor: ReplaySnapshot | undefined;
+  for (let index = anchors.length - 1; index >= 0; index--) {
+    const entry = anchors[index]!;
+    if (parseMs(entry.generated_at) > atMs) continue;
+    anchor = entry;
+    break;
+  }
+  if (!anchor) return latest;
+  if (anchor.generated_at === latest.generated_at && latest.resident.vitals.alive) return latest;
+  return {
+    ...latest,
+    generated_at: anchor.generated_at,
+    status: anchor.status,
+    world: { ...latest.world, ...anchor.world },
+    resident: {
+      ...latest.resident,
+      ...anchor.resident,
+      vitals: { ...latest.resident.vitals, ...anchor.resident.vitals },
+    },
+  };
+}
+
 /**
  * Pure renderer state function: evaluates snapshot + timeline events at timestamp `atMs`.
  * Supports smooth walk interpolation, mid-action state for late arrivals, body channels,
@@ -151,12 +181,21 @@ export function evaluateTimeline(
   snapshot: Snapshot,
   events: readonly Event[],
   atMs: number,
+  bounds = getTimelineBounds(snapshot, events),
 ): TimelineState {
-  const { startMs: windowStartMs, endMs: windowEndMs } = getTimelineBounds(snapshot, events);
-  const sorted = [...events].sort((a, b) => a.seq - b.seq);
+  const { startMs: windowStartMs, endMs: windowEndMs } = bounds;
+  const sorted = [...events].sort(
+    (a, b) => parseMs(a.t_start) - parseMs(b.t_start) || a.seq - b.seq,
+  );
   const snapshotMs = parseMs(snapshot.generated_at);
 
   let pose = { ...snapshot.resident.pose };
+  if (atMs < snapshotMs) {
+    const firstWalk = sorted.find((event) => event.kind === "walk");
+    if (firstWalk && atMs < parseMs(firstWalk.t_start)) {
+      pose = interpolateWaypoints(firstWalk.data.waypoints, 0);
+    }
+  }
   let walk: TimelineState["walk"] = null;
   let station: Station | null = snapshot.resident.station;
   let poseAnim: CharacterPoseAnim = snapshot.resident.vitals.alive ? "idle" : "dead";
@@ -192,7 +231,8 @@ export function evaluateTimeline(
     const tEnd = Math.max(tStart, parseMs(ev.t_end));
     if (tStart > atMs) continue;
 
-    const isActive = atMs >= tStart && atMs <= tEnd;
+    const isActive = atMs < tEnd || atMs === tStart;
+    const beforeSnapshot = tStart < snapshotMs && atMs >= snapshotMs;
 
     switch (ev.kind) {
       case "walk": {
@@ -236,6 +276,7 @@ export function evaluateTimeline(
         break;
       }
       case "body": {
+        if (beforeSnapshot) break;
         physiology = {
           ...physiology,
           heart_rate: ev.data.heart_rate,
@@ -247,12 +288,13 @@ export function evaluateTimeline(
         break;
       }
       case "world": {
+        if (beforeSnapshot) break;
         weather = ev.data.weather;
         timeOfDay = ev.data.time_of_day;
         break;
       }
       case "fire": {
-        if (atMs >= snapshotMs && tStart < snapshotMs) break;
+        if (beforeSnapshot) break;
         const { id, state, x, z } = ev.data;
         // Older events identify a fire by position. Carry its snapshot identity when known.
         const legacyId = `fire_at_${x}_${z}`;
@@ -315,6 +357,7 @@ export function evaluateTimeline(
         break;
       }
       case "death": {
+        if (beforeSnapshot) break;
         alive = false;
         causeOfDeath = ev.data.cause;
         status = "dead";
@@ -325,6 +368,7 @@ export function evaluateTimeline(
         break;
       }
       case "status": {
+        if (beforeSnapshot) break;
         status = ev.data.status;
         if (ev.data.status === "dead") {
           alive = false;

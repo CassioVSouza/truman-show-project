@@ -1,4 +1,4 @@
-import type { Event, Snapshot } from "@truman/contracts";
+import type { Event, ReplaySnapshot, Snapshot } from "@truman/contracts";
 import {
   dist,
   nearestOnSegment,
@@ -7,7 +7,7 @@ import {
   type Vec,
   type WorldMap,
 } from "@truman/world";
-import { evaluateTimeline } from "../state/timeline";
+import { evaluateTimeline, snapshotAt } from "../state/timeline";
 import { restPose } from "./restPose";
 
 export interface SceneryFootprint extends Vec {
@@ -20,10 +20,12 @@ export function sceneryCorridors(
   map: WorldMap,
   snapshot: Snapshot,
   events: readonly Event[],
+  anchors: readonly ReplaySnapshot[] = [],
 ): SceneryCorridor[] {
   const { pose } = snapshot.resident;
   const segments: SceneryCorridor[] = [...walkableTrailSegments(map), [pose, pose]];
   const campRadius = WORLD_CONFIG.fire.campRadius;
+  const replayStart = anchors[0] ? Date.parse(anchors[0].generated_at) : -Infinity;
   for (const fire of snapshot.world.entities) {
     if (fire.type === "fire") segments.push([fire, fire, campRadius]);
   }
@@ -39,7 +41,9 @@ export function sceneryCorridors(
       event.kind === "sleep_start" ||
       (event.kind === "anim" && event.data.name === "rest")
     ) {
-      const state = evaluateTimeline(snapshot, events, Date.parse(event.t_start));
+      if (Date.parse(event.t_end) < replayStart) continue;
+      const atMs = Math.max(replayStart, Date.parse(event.t_start));
+      const state = evaluateTimeline(snapshotAt(snapshot, anchors, atMs), events, atMs);
       const { x, z, heading, onBed } = restPose(map, state);
       if (onBed) continue;
       const dx = Math.sin(heading) * WORLD_CONFIG.shelter.restHalfLength;

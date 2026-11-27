@@ -28,7 +28,7 @@ describe("ViewerApiClient", () => {
   });
 
   it("loads one static bundle and renders a mid-action arrival", async () => {
-    const calls: Array<{ url: string; method: string }> = [];
+    const calls: Array<{ url: string; method: string; cache?: RequestCache }> = [];
     const now = Date.now();
     const walk = DEMO_EVENTS.find((event) => event.kind === "walk")!;
     const snapshot = { ...DEMO_SNAPSHOT, generated_at: new Date(now - 5_000).toISOString() };
@@ -41,7 +41,7 @@ describe("ViewerApiClient", () => {
     ];
     const fetchImpl: typeof fetch = vi.fn(async (input, init) => {
       const url = String(input);
-      calls.push({ url, method: init?.method ?? "GET" });
+      calls.push({ url, method: init?.method ?? "GET", cache: init?.cache });
       return Response.json({ snapshot, events, status: DEMO_STATUS });
     });
 
@@ -54,7 +54,7 @@ describe("ViewerApiClient", () => {
     expect(feed.state).toBe("live");
     expect(feed.snapshot?.seq).toBe(snapshot.seq);
     expect(feed.status).toEqual(DEMO_STATUS);
-    expect(calls).toEqual([{ url: `${staticHost}/live.json`, method: "GET" }]);
+    expect(calls).toEqual([{ url: `${staticHost}/live.json`, method: "GET", cache: "no-cache" }]);
     const frame = evaluateTimeline(feed.snapshot!, feed.events, now);
     expect(frame.midAction).toBe(true);
     expect(frame.poseAnim).toBe("walk");

@@ -30,7 +30,13 @@ import { appraise } from "./appraise";
 import { executeAction, idleFor, recoverResidentPosition, type ExecOutcome } from "./engine";
 import { fireAdvanceEvents } from "./fire-events";
 import type { LogRef } from "../log";
-import type { SnapshotPublisher, SnapshotSource } from "../snapshot";
+import {
+  projectReplaySnapshot,
+  retainReplaySnapshots,
+  type SnapshotPublisher,
+  type SnapshotSource,
+} from "../snapshot";
+import { nextDecisionTime, nextTickTime } from "../snapshot/timing";
 import type { TickLog, TickRows } from "./ports";
 import { cognition, organismStep, physiologyNow, senseNow } from "./senses";
 import {
@@ -238,6 +244,7 @@ async function inner(
   const leaseExpiresAt = started.getTime() + cfg.leaseTtlMs;
   const g = gate(state.kv, state.resident);
   const plan = pickMode(state.kv, started, cfg);
+  const nextTickAt = nextTickTime(started.getTime(), deps.scheduledAtMs, cfg.tickMinutes);
   noteBudget(plan.budget);
   if (!g.run || plan.mode === "hibernating") {
     const reason = g.run ? "hibernating" : g.reason;
@@ -246,7 +253,13 @@ async function inner(
     );
     if (deps.publishSnapshot && state.resident) {
       const mind = readMind(state.kv);
-      if (mind)
+      if (mind) {
+        const status =
+          state.resident["status"] === "dead"
+            ? "dead"
+            : reason === "paused"
+              ? "paused"
+              : "hibernating";
         await publishCommittedSnapshot(
           deps,
           {
@@ -255,18 +268,20 @@ async function inner(
             tickMinutes: cfg.tickMinutes,
             mind,
             mode: g.run ? "hibernating" : "skipped",
-            status:
-              state.resident["status"] === "dead"
-                ? "dead"
-                : reason === "paused"
-                  ? "paused"
-                  : "hibernating",
+            status,
             phase,
             lastTickAt: state.resident["last_tick_at"],
+            nextTickAt,
+            nextDecisionAt: null,
+            replaySnapshots: retainReplaySnapshots(
+              state.kv["replay_snapshots"],
+              projectReplaySnapshot(mind, started, status),
+            ),
           },
           leaseExpiresAt,
           now,
         );
+      }
     }
     return {
       ran: false,
@@ -727,6 +742,16 @@ async function inner(
     : null;
   const dead = !mind.body.alive;
   const status = dead ? "dead" : step === "degraded" || step === "idle" ? "degraded" : "running";
+  const replay = deps.publishSnapshot
+    ? retainReplaySnapshots(
+        state.kv["replay_snapshots"],
+        projectReplaySnapshot(
+          displayStart,
+          started,
+          dead && displayStart.body.alive ? "running" : status,
+        ),
+      )
+    : undefined;
   const payload: TickPayload = {
     tick: {
       started_at: started.toISOString(),
@@ -737,7 +762,12 @@ async function inner(
       error: step === "degraded" ? "providers_failed" : null,
     },
     ...sink.drain(),
-    kv: { mind, budget, ...(wakeBox.w ? { wake_request: wakeBox.w } : {}) },
+    kv: {
+      mind,
+      budget,
+      ...(wakeBox.w ? { wake_request: wakeBox.w } : {}),
+      ...(replay ? { replay_snapshots: replay } : {}),
+    },
     resident: {
       x: mind.pos.x,
       z: mind.pos.z,
@@ -766,6 +796,9 @@ async function inner(
         status,
         phase,
         lastTickAt: started.toISOString(),
+        nextTickAt,
+        nextDecisionAt: nextDecisionTime(nextTickAt, mind, budget, cfg, deps.providers),
+        replaySnapshots: replay,
       },
       leaseExpiresAt,
       now,
