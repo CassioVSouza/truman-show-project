@@ -1,4 +1,4 @@
-import { LiveFeed, MAX_REPLAY_SNAPSHOTS } from "@truman/contracts";
+import { LiveFeed, MAX_REPLAY_SNAPSHOTS, type Action } from "@truman/contracts";
 import { advance } from "@truman/world";
 import { describe, expect, test, vi } from "vitest";
 import { SupabaseDb } from "../db/supabase";
@@ -187,7 +187,7 @@ describe("public snapshot projection", () => {
 });
 
 function wiring(
-  action = {
+  action: Action = {
     type: "think",
     thought: "Consider the room.",
     intent: "Look around.",
@@ -271,7 +271,7 @@ describe("tick publication", () => {
   });
 
   test("anchors the snapshot pose at the beginning of a new walk, not the committed destination", async () => {
-    const action = {
+    const action: Action = {
       type: "move_to",
       station: "river",
       thought: "The river is outside.",
