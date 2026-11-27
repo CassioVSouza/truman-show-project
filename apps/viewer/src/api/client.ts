@@ -4,6 +4,7 @@ import {
   type Event,
   type ListResponse,
   type LogEntry,
+  type ReplaySnapshot,
   type SearchResponse,
   type Snapshot,
 } from "@truman/contracts";
@@ -26,17 +27,26 @@ export interface StatusPayload {
   mode: string | null;
   world_day: number | null;
   season: string | null;
+  next_decision_at?: string | null;
+  next_tick_at?: string | null;
 }
 
 interface SnapshotFeed {
   snapshot: Snapshot;
   events: Event[];
   status: StatusPayload | null;
+  replay_snapshots?: ReplaySnapshot[];
 }
 
 export type SnapshotFeedResult =
   | (SnapshotFeed & { state: "demo" | "live" | "stale" })
-  | { state: "unavailable"; snapshot: null; events: []; status: null };
+  | {
+      state: "unavailable";
+      snapshot: null;
+      events: [];
+      status: null;
+      replay_snapshots?: undefined;
+    };
 
 const SNAPSHOT_STALE_AFTER_MS = 20 * 60_000;
 
@@ -84,12 +94,15 @@ export class ViewerApiClient {
     this.isDemoMode = !this.apiBase && !this.snapshotBase;
   }
 
-  private async getJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
+  private async getJson<T>(
+    url: string,
+    options?: Pick<RequestInit, "cache" | "signal">,
+  ): Promise<T | null> {
     try {
       const res = await this.fetchFn(url, {
         method: "GET",
         headers: { accept: "application/json" },
-        signal,
+        ...options,
       });
       if (!res.ok) return null;
       return (await res.json()) as T;
@@ -120,10 +133,10 @@ export class ViewerApiClient {
   }
 
   private async fetchStaticFeed(): Promise<SnapshotFeedResult> {
-    const raw = await this.getJson<unknown>(
-      `${this.snapshotBase}/live.json`,
-      AbortSignal.timeout(10_000),
-    );
+    const raw = await this.getJson<unknown>(`${this.snapshotBase}/live.json`, {
+      cache: "no-cache",
+      signal: AbortSignal.timeout(10_000),
+    });
     const parsed = LiveFeed.safeParse(raw);
     const previous = this.latestStaticFeed;
     const next = parsed.success ? parsed.data : null;

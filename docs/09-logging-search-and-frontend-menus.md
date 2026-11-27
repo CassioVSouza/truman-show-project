@@ -22,7 +22,7 @@ Each entry carries: `id`, `seq`, `ts`, `tick_id`, `kind`, `category` (`life` | `
 Technical content is isolated from life content. The Lab is a separate section (`/lab/*`), reachable from a clearly marked toggle.
 
 ### Life (default experience)
-- **Live**: 3D world, thought bubble, body panel (heartbeat, breath), now-doing line, and a three-minute decision cadence indicator. Outdoor campfires render at their logged locations alongside the cabin hearth.
+- The **Live** view shows the 3D world, thought bubble, heartbeat and breath, current action, and a countdown to the next eligible decision slot when available. Outdoor campfires render at their logged locations alongside the cabin hearth.
 - **Journal**: entries in own words (EN/PT).
 - **Thoughts**: stream of thoughts with intent and what it expected.
 - **Ideas**: ideas and questions it generated, with status (explored / open).
@@ -30,7 +30,7 @@ Technical content is isolated from life content. The Lab is a separate section (
 - **Memories**: what it knows, with source URL and the body state it had when learning it.
 - **Discoveries**: pages visited, searches made.
 - **Self**: beliefs about itself over time; the `phase` label.
-- **Timeline**: day-by-day scrubber of everything. On desktop, the timeline stays visible at the bottom of the browser viewport.
+- The **Timeline** lets spectators scrub through recent actions and return to live playback. On desktop, it stays visible at the bottom of the browser viewport. Search covers the longer log history.
 - **Search** (global bar, always visible).
 
 ### Lab (technical)

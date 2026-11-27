@@ -7,6 +7,7 @@ export const DECISION_CADENCE_MS = DEFAULT_TICK_MINUTES * 60_000;
 
 export interface CountdownInput {
   lastTickIso: string | null;
+  nextDecisionIso?: string | null;
   nowMs: number;
   feedState: string;
   status: string | undefined;
@@ -30,15 +31,20 @@ export function formatDecisionCountdown(
   if (input.feedState === "demo") {
     return { tone: "demo", text: t(lang, "nextDecisionCadence") };
   }
-  const lastMs = input.lastTickIso ? Date.parse(input.lastTickIso) : NaN;
-  if (!Number.isFinite(lastMs)) {
-    return { tone: "demo", text: t(lang, "nextDecisionCadence") };
-  }
+  const scheduled = input.nextDecisionIso !== undefined;
   const cadence = input.cadenceMs ?? DECISION_CADENCE_MS;
-  const elapsed = Math.max(0, input.nowMs - lastMs);
-  const remaining = cadence - elapsed;
+  const lastMs = Date.parse(input.lastTickIso ?? "");
+  const remaining = scheduled
+    ? Date.parse(input.nextDecisionIso ?? "") - input.nowMs
+    : cadence - Math.max(0, input.nowMs - lastMs);
+  if (!Number.isFinite(remaining)) {
+    return {
+      tone: "demo",
+      text: t(lang, scheduled ? "nextDecisionUnknown" : "nextDecisionCadence"),
+    };
+  }
   if (remaining <= 0) {
-    return { tone: "due", text: t(lang, "nextDecisionDue") };
+    return { tone: "due", text: t(lang, scheduled ? "nextDecisionWaiting" : "nextDecisionDue") };
   }
   if (remaining < 60_000) {
     const secs = Math.max(1, Math.ceil(remaining / 1000));
@@ -119,6 +125,12 @@ const TONE_PRIORITY: Record<MarkerTone, number> = {
   other: 1,
 };
 
+function markerPriority(marker: TimelineMarker): number {
+  // A thinking cue stands in for a decision when there is no action to show nearby.
+  if (marker.kind === "anim" && marker.tone === "thought") return 1.5;
+  return TONE_PRIORITY[marker.tone];
+}
+
 function truncate(text: string, maxLen: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= maxLen) return clean;
@@ -174,10 +186,13 @@ export function buildTimelineMarkers(
   const raw: TimelineMarker[] = [];
 
   for (const ev of events) {
-    const desc = describeEvent(ev);
+    const desc =
+      ev.kind === "anim" && ev.data.name === "thinking"
+        ? { tone: "thought" as const, label: "Thinking" }
+        : describeEvent(ev);
     if (!desc) continue;
     const atMs = Date.parse(ev.t_start);
-    if (!Number.isFinite(atMs)) continue;
+    if (!Number.isFinite(atMs) || atMs < windowStartMs || atMs > windowEndMs) continue;
     const pct = Math.max(0, Math.min(100, ((atMs - windowStartMs) / span) * 100));
     raw.push({
       seq: ev.seq,
@@ -186,18 +201,18 @@ export function buildTimelineMarkers(
       kind: ev.kind,
       tone: desc.tone,
       label: desc.label,
-      timeText: formatTime(ev.t_start).slice(0, 5),
+      timeText: formatTime(ev.t_start),
     });
   }
 
-  raw.sort((a, b) => a.pct - b.pct || TONE_PRIORITY[b.tone] - TONE_PRIORITY[a.tone]);
+  raw.sort((a, b) => a.pct - b.pct || markerPriority(b) - markerPriority(a));
 
   // Deduplicate overlapping markers while keeping the highest-priority tone
   const result: TimelineMarker[] = [];
   for (const marker of raw) {
     const prev = result[result.length - 1];
     if (prev && Math.abs(marker.pct - prev.pct) < minGapPct) {
-      if (TONE_PRIORITY[marker.tone] > TONE_PRIORITY[prev.tone]) {
+      if (markerPriority(marker) > markerPriority(prev)) {
         result[result.length - 1] = marker;
       }
       continue;
@@ -331,7 +346,7 @@ export function resolveShortcut(e: ShortcutKeyEvent): ShortcutAction | null {
     case "3":
       return "camera-world";
     case " ":
-      return "toggle-play";
+      return e.target?.tagName?.toUpperCase() === "BUTTON" ? null : "toggle-play";
     case "h":
     case "H":
       return "toggle-cinema";

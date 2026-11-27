@@ -1,7 +1,7 @@
 import { SCHEMA_VERSION, type Event } from "@truman/contracts";
 import { describe, expect, it } from "vitest";
 import { DEMO_SNAPSHOT } from "../api/demoData";
-import { evaluateTimeline } from "./timeline";
+import { evaluateTimeline, snapshotAt } from "./timeline";
 
 const T0 = Date.parse("2026-11-26T12:00:00.000Z");
 const iso = (sec: number) => new Date(T0 + sec * 1000).toISOString();
@@ -129,6 +129,41 @@ describe("evaluateTimeline", () => {
     expect(st.physiology.heart_rate).toBe(96);
     expect(st.physiology.breath_rate).toBe(21);
     expect(st.thought).toBe("The rain is tapping on the roof.");
+  });
+
+  it("restores idle pose and weather from the correct anchor across historical ticks", () => {
+    const early = { ...DEMO_SNAPSHOT, generated_at: iso(0) };
+    const middle = {
+      ...early,
+      generated_at: iso(30),
+      world: { ...early.world, weather: "clear" },
+      resident: { ...early.resident, pose: { x: 4, z: 5, heading: 1 } },
+    };
+    const latest = {
+      ...middle,
+      generated_at: iso(60),
+      resident: { ...middle.resident, pose: { x: 14, z: 16, heading: 2 } },
+    };
+    const anchors = [early, middle, latest];
+    const events: Event[] = [
+      {
+        v: SCHEMA_VERSION,
+        seq: 1,
+        t_start: iso(5),
+        t_end: iso(25),
+        actor: "world",
+        kind: "world",
+        data: { weather: "rain", time_of_day: "dusk" },
+        log_id: null,
+      },
+    ];
+
+    expect(
+      evaluateTimeline(snapshotAt(latest, anchors, T0 + 10_000), events, T0 + 10_000),
+    ).toMatchObject({ pose: early.resident.pose, weather: "rain" });
+    expect(
+      evaluateTimeline(snapshotAt(latest, anchors, T0 + 40_000), events, T0 + 40_000),
+    ).toMatchObject({ pose: middle.resident.pose, weather: "clear" });
   });
 
   it("uses the snapshot sky with no fires during a quiet window", () => {

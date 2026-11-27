@@ -1,4 +1,11 @@
-import { Event, Snapshot, type LiveFeed, type InventoryItem } from "@truman/contracts";
+import {
+  Event,
+  MAX_REPLAY_SNAPSHOTS,
+  ReplaySnapshot,
+  Snapshot,
+  type LiveFeed,
+  type InventoryItem,
+} from "@truman/contracts";
 import { vitals } from "@truman/body";
 import { dayIndex, fireState, fireTimeline, seasonAt, timeOfDay, weatherAt } from "@truman/world";
 import { publicFireId } from "../tick/fire-events";
@@ -14,11 +21,16 @@ export interface SnapshotSource {
   status: string;
   phase: string;
   lastTickAt: unknown;
+  nextTickAt?: number;
+  nextDecisionAt?: number | null;
+  replaySnapshots?: ReplaySnapshot[];
 }
 
 export type SnapshotPublisher = (source: SnapshotSource) => Promise<void>;
 export type SnapshotWriter = (feed: LiveFeed) => Promise<void>;
 export type SnapshotEventReader = (from: Date, until: Date) => Promise<unknown>;
+
+const REPLAY_LOOKBACK_MS = 30 * 60_000;
 
 function isoDate(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -124,6 +136,45 @@ function publicFires(mind: MindState, clock: number): Snapshot["world"]["entitie
     }));
 }
 
+export function projectReplaySnapshot(
+  mind: MindState,
+  started: Date,
+  status: string,
+): ReplaySnapshot {
+  const { world } = mind;
+  const clock = Math.min(world.t, worldTimeAt(mind, started.getTime()));
+  return {
+    generated_at: started.toISOString(),
+    status,
+    world: {
+      weather: weatherAt(world, clock).kind,
+      time_of_day: timeOfDay(world, clock),
+      entities: publicFires(mind, clock),
+    },
+    resident: {
+      pose: mind.pos,
+      station: mind.station,
+      body: physiologyNow(mind),
+      vitals: { alive: mind.body.alive, cause_of_death: mind.body.cause_of_death },
+    },
+  };
+}
+
+/** Read only recent, well-formed anchors. The KV value comes from prior successful ticks. */
+export function retainReplaySnapshots(raw: unknown, latest: ReplaySnapshot): ReplaySnapshot[] {
+  const now = Date.parse(latest.generated_at);
+  const cutoff = now - REPLAY_LOOKBACK_MS;
+  const recent = Array.isArray(raw) ? raw.slice(-(MAX_REPLAY_SNAPSHOTS - 1)) : [];
+  const snapshots: ReplaySnapshot[] = [];
+  for (const value of recent) {
+    const result = ReplaySnapshot.safeParse(value);
+    if (!result.success) continue;
+    const at = Date.parse(result.data.generated_at);
+    if (at >= cutoff && at < now) snapshots.push(result.data);
+  }
+  return [...snapshots, latest];
+}
+
 export function createSnapshotPublisher(
   readEvents: SnapshotEventReader,
   write: SnapshotWriter,
@@ -131,20 +182,25 @@ export function createSnapshotPublisher(
   return async (source) => {
     const { tickId, started, tickMinutes, mind, mode, status, phase, lastTickAt } = source;
     const windowMs = tickMinutes * 60_000;
-    const until = new Date(started.getTime() + windowMs);
-    const events = publicEvents(await readEvents(started, until));
+    const startMs = started.getTime();
+    const until = new Date(startMs + windowMs);
+    const events = publicEvents(await readEvents(new Date(startMs - REPLAY_LOOKBACK_MS), until));
     const world = mind.world;
-    const clock = Math.min(world.t, worldTimeAt(mind, started.getTime()));
+    const clock = Math.min(world.t, worldTimeAt(mind, startMs));
+    const anchor = source.replaySnapshots?.at(-1);
+    const display =
+      anchor?.generated_at === started.toISOString() && anchor.status === status
+        ? anchor
+        : projectReplaySnapshot(mind, started, status);
     const snapshot = Snapshot.parse({
+      ...display,
       v: world.v,
       seq: tickId,
-      generated_at: started.toISOString(),
       world: {
+        ...display.world,
         seed: world.seed,
-        weather: weatherAt(world, clock).kind,
-        time_of_day: timeOfDay(world, clock),
         entities: [
-          ...publicFires(mind, clock),
+          ...display.world.entities,
           ...world.nodes.map((node) => ({
             id: node.id,
             type: node.kind,
@@ -155,23 +211,27 @@ export function createSnapshotPublisher(
         ],
       },
       resident: {
-        pose: mind.pos,
-        station: mind.station,
-        body: physiologyNow(mind),
+        ...display.resident,
         vitals: vitals(mind.body),
         inventory: publicInventory(mind.inventory),
         phase,
       },
-      status,
     });
     await write({
       snapshot,
       events,
+      replay_snapshots: source.replaySnapshots,
       status: {
         status,
         phase,
         day: Math.floor(clock / 1440) + 1,
         last_tick_at: isoDate(lastTickAt),
+        next_tick_at:
+          source.nextTickAt === undefined ? undefined : new Date(source.nextTickAt).toISOString(),
+        next_decision_at:
+          source.nextDecisionAt == null
+            ? source.nextDecisionAt
+            : new Date(source.nextDecisionAt).toISOString(),
         mode,
         world_day: dayIndex(world, clock) + 1,
         season: seasonAt(clock),

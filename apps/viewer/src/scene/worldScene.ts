@@ -1,4 +1,4 @@
-import type { Event, Snapshot } from "@truman/contracts";
+import type { Event, ReplaySnapshot, Snapshot } from "@truman/contracts";
 import { generateMap, insideCabin, WORLD_CONFIG, type WorldMap } from "@truman/world";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -217,13 +217,17 @@ export class WorldScene {
     this.startLoop();
   }
 
-  applyFeedGeometry(snapshot: Snapshot, events: readonly Event[]): void {
+  applyFeedGeometry(
+    snapshot: Snapshot,
+    events: readonly Event[],
+    anchors: readonly ReplaySnapshot[] = [],
+  ): void {
     const { seed } = snapshot.world;
     if (this.currentMap?.seed !== seed) {
       this.currentMap = generateMap(seed);
       this.rebuildWorld(this.currentMap);
     }
-    const corridors = sceneryCorridors(this.currentMap, snapshot, events);
+    const corridors = sceneryCorridors(this.currentMap, snapshot, events, anchors);
     for (const { meshes, footprints, hiddenTransforms } of this.sceneryBatches) {
       footprints.forEach((footprint, index) => {
         const hidden = intersectsSceneryCorridor(footprint, corridors);
@@ -1856,7 +1860,7 @@ export class WorldScene {
     const walk = state.walk;
     if (walk) {
       const elapsed = Math.max(0, Math.min(TIMELINE_SAMPLE_MS, now - this.latestStateReceivedAt));
-      const atMs = state.atMs + elapsed * this.playbackRate;
+      const atMs = Math.min(state.windowEndMs, state.atMs + elapsed * this.playbackRate);
       target = interpolateWaypoints(
         walk.waypoints,
         (atMs - walk.startMs) / Math.max(1, walk.endMs - walk.startMs),

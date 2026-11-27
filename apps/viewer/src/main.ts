@@ -1,4 +1,4 @@
-import type { Event, SearchResponse, Snapshot } from "@truman/contracts";
+import type { Event, ReplaySnapshot, SearchResponse, Snapshot } from "@truman/contracts";
 import "./styles.css";
 import { ViewerBeat, getViewerToken } from "./api/viewerBeat";
 import { createViewerApiClient, type SnapshotFeedResult, type StatusPayload } from "./api/client";
@@ -7,9 +7,19 @@ import { WorldScene, type CameraMode } from "./scene/worldScene";
 import {
   evaluateTimeline,
   getTimelineBounds,
+  snapshotAt,
   TIMELINE_SAMPLE_MS,
+  type TimelineBounds,
   type TimelineState,
 } from "./state/timeline";
+import {
+  livePlayhead,
+  liveTimelineBounds,
+  receiveLivePlayback,
+  SNAPSHOT_REFRESH_MS,
+  staticRefreshDelay,
+  type LivePlayback,
+} from "./state/livePlayback";
 import { clear, el, formatDateTime } from "./ui/dom";
 import {
   computeVitalTrends,
@@ -24,13 +34,12 @@ import {
 import { renderLabTab, type LabTab } from "./ui/labViews";
 import { renderLifeTab, type LifeTab } from "./ui/lifeViews";
 import { openContextModal, renderSearchPalette, runSearch } from "./ui/searchAndContext";
-import { renderTimelineBar } from "./ui/timelineBar";
+import { TimelineBar } from "./ui/timelineBar";
 import { renderVitalsHud } from "./ui/vitalsHud";
 
 type Section = "life" | "lab";
 
 const SPEEDS = [1, 2, 5];
-const SNAPSHOT_REFRESH_MS = 60_000;
 
 class ViewerApp {
   private readonly api = createViewerApiClient();
@@ -48,6 +57,9 @@ class ViewerApp {
   private prevVitals: VitalsSnapshot | null = null;
   private vitalTrends: VitalTrends = FLAT_VITAL_TRENDS;
   private events: Event[] = [];
+  private replaySnapshots: ReplaySnapshot[] = [];
+  private timelineBounds: TimelineBounds | null = null;
+  private livePlayback: LivePlayback | null = null;
   private status: StatusPayload | null = null;
   private feedState: SnapshotFeedResult["state"] | "loading" = "loading";
 
@@ -86,6 +98,7 @@ class ViewerApp {
   private cinemaExitEl!: HTMLElement;
   private hudSidebarEl!: HTMLElement;
   private timelineBarEl!: HTMLElement;
+  private timelineBar!: TimelineBar;
   private tabPopupBackdropEl!: HTMLElement;
   private tabPopupPanelEl!: HTMLElement;
   private tabPopupHeaderEl!: HTMLElement;
@@ -196,9 +209,7 @@ class ViewerApp {
         case "toggle-play":
           if (this.snapshot) {
             e.preventDefault();
-            this.isPlaying = !this.isPlaying;
-            if (!this.isPlaying) this.isLive = false;
-            this.renderFrame();
+            this.togglePlayback();
           }
           break;
         case "toggle-cinema":
@@ -300,6 +311,28 @@ class ViewerApp {
     });
 
     this.timelineBarEl = el("footer", { class: "timeline-bar" });
+    this.timelineBar = new TimelineBar(this.timelineBarEl, {
+      onToggleLive: () => {
+        this.isLive = true;
+        this.isPlaying = true;
+        this.playheadMs = this.livePlayback
+          ? livePlayhead(this.livePlayback, performance.now())
+          : (this.timelineBounds?.startMs ?? this.playheadMs);
+        this.renderFrame();
+      },
+      onTogglePlay: () => this.togglePlayback(),
+      onScrub: (nextMs) => {
+        this.isLive = false;
+        this.isPlaying = false;
+        this.playheadMs = nextMs;
+        this.renderFrame();
+      },
+      onCycleSpeed: () => {
+        if (this.feedState !== "demo") this.isLive = false;
+        this.speedIdx = (this.speedIdx + 1) % SPEEDS.length;
+        this.renderFrame();
+      },
+    });
     this.mainAreaEl = el("main", { class: "main-area" }, this.liveGridEl);
     this.contextModalEl = el("div", { class: "modal-backdrop" });
     this.contextModalEl.hidden = true;
@@ -344,6 +377,10 @@ class ViewerApp {
     try {
       const feed = await this.api.fetchSnapshotFeed();
       const wasDemo = this.feedState === "demo";
+      const newSnapshot =
+        this.snapshot?.seq !== feed.snapshot?.seq ||
+        this.snapshot?.generated_at !== feed.snapshot?.generated_at ||
+        wasDemo !== (feed.state === "demo");
       if (this.snapshot && feed.snapshot && feed.snapshot.seq !== this.snapshot.seq) {
         this.prevVitals = { ...this.snapshot.resident.vitals };
       }
@@ -352,6 +389,7 @@ class ViewerApp {
         this.vitalTrends = computeVitalTrends(this.prevVitals, this.snapshot.resident.vitals);
       }
       this.events = feed.events;
+      this.replaySnapshots = feed.replay_snapshots ?? [];
       this.status = feed.status;
       this.feedState = feed.state;
       this.renderedStatusChips = "";
@@ -359,12 +397,33 @@ class ViewerApp {
 
       if (this.snapshot) {
         if (!this.sceneInitialized) this.initScene();
-        this.worldScene?.applyFeedGeometry(this.snapshot, this.events);
-        const { startMs, endMs } = getTimelineBounds(this.snapshot, this.events);
+        if (newSnapshot)
+          this.worldScene?.applyFeedGeometry(this.snapshot, this.events, this.replaySnapshots);
+        const isDemo = feed.state === "demo";
+        this.timelineBounds = isDemo
+          ? getTimelineBounds(this.snapshot, this.events)
+          : liveTimelineBounds(
+              this.snapshot,
+              this.events,
+              this.status?.next_tick_at,
+              this.replaySnapshots[0]?.generated_at,
+            );
+        const { startMs, endMs } = this.timelineBounds;
+        const localTime = performance.now();
+        this.livePlayback = isDemo
+          ? null
+          : receiveLivePlayback(
+              this.livePlayback,
+              this.snapshot,
+              this.events,
+              this.timelineBounds,
+              Date.now(),
+              localTime,
+            );
         if (!this.isLive) {
           this.playheadMs = Math.min(endMs, Math.max(startMs, this.playheadMs));
-        } else if (feed.state !== "demo") {
-          this.playheadMs = Date.now();
+        } else if (this.livePlayback) {
+          this.playheadMs = livePlayhead(this.livePlayback, localTime);
         } else if (!wasDemo) {
           this.playheadMs = startMs + 8_000;
         }
@@ -376,9 +435,24 @@ class ViewerApp {
       }
     } finally {
       if (this.api.snapshotBase || this.api.apiBase) {
-        window.setTimeout(() => void this.refreshFeed(), SNAPSHOT_REFRESH_MS);
+        const delay = this.api.snapshotBase
+          ? staticRefreshDelay(this.status?.next_tick_at, Date.now())
+          : SNAPSHOT_REFRESH_MS;
+        window.setTimeout(() => void this.refreshFeed(), delay);
       }
     }
+  }
+
+  private togglePlayback(): void {
+    this.isPlaying = !this.isPlaying;
+    const bounds = this.timelineBounds;
+    if (!this.isPlaying) {
+      this.isLive = false;
+    } else if (bounds && this.playheadMs >= bounds.endMs) {
+      this.isLive = false;
+      this.playheadMs = bounds.startMs;
+    }
+    this.renderFrame();
   }
 
   private startPlaybackClock(): void {
@@ -387,16 +461,17 @@ class ViewerApp {
       const now = performance.now();
       const dt = now - last;
       last = now;
-      if (!this.snapshot) return;
+      if (!this.snapshot || !this.timelineBounds) return;
       if (this.isPlaying) {
-        if (this.isLive && this.feedState !== "demo") {
-          this.playheadMs = Date.now();
+        if (this.isLive && this.livePlayback) {
+          this.playheadMs = livePlayhead(this.livePlayback, now);
         } else {
-          const { startMs, endMs } = getTimelineBounds(this.snapshot, this.events);
+          const { startMs, endMs } = this.timelineBounds;
           const speed = SPEEDS[this.speedIdx] ?? 1;
           this.playheadMs += dt * speed;
-          if (this.playheadMs > endMs) {
+          if (this.playheadMs >= endMs) {
             this.playheadMs = this.feedState === "demo" ? startMs : endMs;
+            if (this.feedState !== "demo") this.isPlaying = false;
           }
         }
       }
@@ -640,6 +715,7 @@ class ViewerApp {
     const countdown = formatDecisionCountdown(
       {
         lastTickIso,
+        nextDecisionIso: this.status?.next_decision_at,
         nowMs: Date.now(),
         feedState: this.feedState,
         status,
@@ -715,8 +791,12 @@ class ViewerApp {
 
   private renderFrame(): void {
     const snapshot = this.snapshot;
-    if (!snapshot) return;
-    const evaluated = evaluateTimeline(snapshot, this.events, this.playheadMs);
+    if (!snapshot || !this.timelineBounds) return;
+    const baseline =
+      this.isLive && !snapshot.resident.vitals.alive
+        ? snapshot
+        : snapshotAt(snapshot, this.replaySnapshots, this.playheadMs);
+    const evaluated = evaluateTimeline(baseline, this.events, this.playheadMs, this.timelineBounds);
     const speed = SPEEDS[this.speedIdx] ?? 1;
     const playbackRate = this.isLive && this.feedState !== "demo" ? 1 : speed;
     this.worldScene?.applyTimelineState(evaluated, this.isPlaying ? playbackRate : 0);
@@ -742,43 +822,14 @@ class ViewerApp {
       },
     });
 
-    // Timeline bar
-    renderTimelineBar(
-      this.timelineBarEl,
-      {
-        isLive: this.isLive,
-        isPlaying: this.isPlaying,
-        speed,
-        events: this.events,
-        evaluated,
-        lang: this.lang,
-      },
-      {
-        onToggleLive: () => {
-          this.isLive = true;
-          this.isPlaying = true;
-          const bounds = getTimelineBounds(snapshot, this.events);
-          this.playheadMs = this.feedState === "demo" ? bounds.startMs : Date.now();
-          this.renderFrame();
-        },
-        onTogglePlay: () => {
-          this.isPlaying = !this.isPlaying;
-          if (!this.isPlaying) this.isLive = false;
-          this.renderFrame();
-        },
-        onScrub: (nextMs) => {
-          this.isLive = false;
-          this.isPlaying = false;
-          this.playheadMs = nextMs;
-          this.renderFrame();
-        },
-        onCycleSpeed: () => {
-          if (this.feedState !== "demo") this.isLive = false;
-          this.speedIdx = (this.speedIdx + 1) % SPEEDS.length;
-          this.renderFrame();
-        },
-      },
-    );
+    this.timelineBar.update({
+      isLive: this.isLive,
+      isPlaying: this.isPlaying,
+      speed,
+      events: this.events,
+      evaluated,
+      lang: this.lang,
+    });
   }
 
   private renderThought(evaluated: TimelineState): void {

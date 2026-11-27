@@ -371,14 +371,27 @@ export const Snapshot = z.object({
 });
 export type Snapshot = z.infer<typeof Snapshot>;
 
+/** Display state at a recent tick boundary, for replay across snapshot updates. */
+export const ReplaySnapshot = Snapshot.pick({ generated_at: true, status: true }).extend({
+  world: Snapshot.shape.world.pick({ weather: true, time_of_day: true, entities: true }),
+  resident: Snapshot.shape.resident.pick({ pose: true, station: true, body: true }).extend({
+    vitals: BodyState.pick({ alive: true, cause_of_death: true }),
+  }),
+});
+export type ReplaySnapshot = z.infer<typeof ReplaySnapshot>;
+export const MAX_REPLAY_SNAPSHOTS = 12;
+
 export const LiveFeed = z.object({
   snapshot: Snapshot,
   events: z.array(Event).max(200),
+  replay_snapshots: z.array(ReplaySnapshot).max(MAX_REPLAY_SNAPSHOTS).optional(),
   status: z.object({
     status: z.string(),
     phase: z.string(),
     day: z.number().int(),
     last_tick_at: z.string().datetime().nullable(),
+    next_tick_at: z.string().datetime().nullable().optional(),
+    next_decision_at: z.string().datetime().nullable().optional(),
     mode: z.string(),
     world_day: z.number().int(),
     season: z.enum(["spring", "summer", "autumn", "winter"]),
