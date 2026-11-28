@@ -219,4 +219,84 @@ describe("ViewerApiClient", () => {
     expect(feed.state).toBe("demo");
     expect(feed.snapshot?.v).toBe(1);
   });
+
+  it("lists newest first even when the source is ascending, and never shows demo data on API failure", async () => {
+    const offline = new ViewerApiClient();
+    const demoLog = await offline.getLog({ category: "life" });
+    const ids = demoLog.items.map((e) => e.id);
+    expect(ids).toEqual([...ids].sort((a, b) => b - a));
+
+    const fetchImpl: typeof fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/journal")) {
+        return new Response(
+          JSON.stringify({ items: [{ id: 1 }, { id: 3 }, { id: 2 }], next_before: null }),
+          { status: 200 },
+        );
+      }
+      return new Response("boom", { status: 500 });
+    });
+    const client = new ViewerApiClient({ apiBase: workerHost, fetchImpl });
+    const journal = await client.getList("journal");
+    expect(journal.data.items.map((i) => i["id"])).toEqual([3, 2, 1]);
+    const failed = await client.getList("memories");
+    expect(failed.error).toBe(true);
+    expect(failed.demo).toBe(false);
+    expect(failed.data.items).toEqual([]);
+    const failedLog = await client.getLog({ kind: "thought", before: 9 });
+    expect(failedLog.error).toBe(true);
+  });
+
+  it("loads search history newest first with next_before, and flags errors", async () => {
+    const urls: string[] = [];
+    const row = { ts: "t", tick_id: 1, status: 200, results: [], caused_by: null };
+    const fetchImpl: typeof fetch = vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          items: [
+            { ...row, id: 5, query: "a", ok: true },
+            { ...row, id: 9, query: "b", ok: false },
+          ],
+          next_before: 5,
+        }),
+        { status: 200 },
+      );
+    });
+    const client = new ViewerApiClient({ apiBase: workerHost, fetchImpl });
+    const res = await client.getSearches({ before: 20, limit: 2 });
+    expect(res.items.map((i) => i.id)).toEqual([9, 5]);
+    expect(res.next_before).toBe(5);
+    expect(urls[0]).toContain("/api/searches?limit=2&before=20");
+
+    const broken = new ViewerApiClient({
+      apiBase: workerHost,
+      fetchImpl: vi.fn(async () => new Response("boom", { status: 500 })) as typeof fetch,
+    });
+    const failed = await broken.getSearches();
+    expect(failed.error).toBe(true);
+    expect(failed.demo).toBe(false);
+    expect(failed.items).toEqual([]);
+
+    const demo = await new ViewerApiClient().getSearches();
+    expect(demo.demo).toBe(true);
+    expect(demo.items.length).toBeGreaterThan(0);
+  });
+  it("sends lang on /api/log and /api/searches and keeps translated", async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      const body = String(input).includes("/api/log")
+        ? { items: [{ id: 1, kind: "thought", text: "hi", translated: "oi" }], next_after: null }
+        : { items: [{ id: 2, query: "q", translated: "consulta" }], next_before: null };
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const client = new ViewerApiClient({ apiBase: workerHost, fetchImpl });
+    const log = await client.getLog({ kind: "thought", lang: "pt" });
+    const searches = await client.getSearches({ lang: "pt" });
+    expect(urls[0]).toContain("lang=pt");
+    expect(urls[1]).toContain("/api/searches?lang=pt");
+    expect(log.items[0]?.translated).toBe("oi");
+    expect(searches.items[0]?.translated).toBe("consulta");
+  });
 });

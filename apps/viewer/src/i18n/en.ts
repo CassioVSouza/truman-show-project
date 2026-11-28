@@ -23,9 +23,9 @@ export const EN = {
   cinemaExit: "Exit Cinema",
   loading: "Loading...",
   emptyState: "No entries yet.",
-  errorLoad: "Could not reach the API — showing offline demo state.",
+  errorLoad: "Could not load entries from the API. Trying again automatically.",
   translatedTag: "PT-BR",
-  enFallbackTag: "EN",
+  enFallbackTag: "[EN]",
   inspectContext: "Causal context",
   contextUnavailable: "This entry is unavailable.",
   close: "Close",
@@ -63,6 +63,11 @@ export const EN = {
   navActions: "Actions",
   navMemories: "Memories",
   navQuestionsLessons: "Questions & Lessons",
+  navSearches: "Search history",
+  searchesOk: "Found results",
+  searchesFailed: "Search failed",
+  searchesNoResults: "No results returned.",
+  searchesLoadOlder: "Load older searches",
 
   // Lab menus (doc 09)
   navLabOrganism: "Organism & Emotion Atlas",
@@ -79,17 +84,6 @@ export const EN = {
   thoughtBubbleLabel: "Thought",
   stationLabel: "Station",
   timeOfDayLabel: "Time",
-
-  // Timeline bar
-  timelineLive: "Live",
-  timelinePlay: "Play",
-  timelinePause: "Pause",
-  timelineSpeed: "Speed",
-  timelineScrubber: "Timeline scrubber",
-  timelineThinking: "Thinking",
-  timelineMidAction: "Mid-action",
-  timelineEventsCount: "events",
-  timelineMemorialReplay: "Memorial Replay",
 
   // Spectator Vitals & Body HUD
   hudTitle: "Spectator Vitals (Hidden from Resident)",
@@ -109,7 +103,7 @@ export const EN = {
   inventoryTitle: "Inventory",
   emptyInventory: "Carrying nothing",
   memorialTitle: "In Memoriam",
-  memorialSubtitle: "Death is permanent. You may scrub the timeline or explore the full archive.",
+  memorialSubtitle: "Death is permanent. You may explore the full archive.",
   causeOfDeath: "Cause of death",
 
   // Life view labels

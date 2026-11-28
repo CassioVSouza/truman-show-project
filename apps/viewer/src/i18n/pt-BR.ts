@@ -25,9 +25,9 @@ export const PT_BR: Record<I18nKey, string> = {
   cinemaExit: "Sair do Cinema",
   loading: "Carregando...",
   emptyState: "Nenhum registro ainda.",
-  errorLoad: "API indisponível — exibindo estado de demonstração offline.",
+  errorLoad: "Não foi possível carregar os registros da API. Tentando novamente automaticamente.",
   translatedTag: "PT-BR",
-  enFallbackTag: "EN",
+  enFallbackTag: "[EN]",
   inspectContext: "Contexto causal",
   contextUnavailable: "Este registro está indisponível.",
   close: "Fechar",
@@ -65,6 +65,11 @@ export const PT_BR: Record<I18nKey, string> = {
   navActions: "Ações",
   navMemories: "Memórias",
   navQuestionsLessons: "Perguntas & Lições",
+  navSearches: "Histórico de buscas",
+  searchesOk: "Resultados encontrados",
+  searchesFailed: "A busca falhou",
+  searchesNoResults: "Nenhum resultado retornado.",
+  searchesLoadOlder: "Carregar buscas mais antigas",
 
   // Lab menus (doc 09)
   navLabOrganism: "Organismo & Atlas Emocional",
@@ -81,17 +86,6 @@ export const PT_BR: Record<I18nKey, string> = {
   thoughtBubbleLabel: "Pensamento",
   stationLabel: "Local",
   timeOfDayLabel: "Período",
-
-  // Timeline bar
-  timelineLive: "Ao Vivo",
-  timelinePlay: "Reproduzir",
-  timelinePause: "Pausar",
-  timelineSpeed: "Velocidade",
-  timelineScrubber: "Controle da linha do tempo",
-  timelineThinking: "Pensando",
-  timelineMidAction: "Em andamento",
-  timelineEventsCount: "eventos",
-  timelineMemorialReplay: "Replay Memorial",
 
   // Spectator Vitals & Body HUD
   hudTitle: "Sinais Vitais (Oculto do Residente)",
@@ -111,8 +105,7 @@ export const PT_BR: Record<I18nKey, string> = {
   inventoryTitle: "Inventário",
   emptyInventory: "Não está carregando nada",
   memorialTitle: "Em Memória",
-  memorialSubtitle:
-    "A morte é permanente. Você pode percorrer a linha do tempo ou explorar todo o arquivo.",
+  memorialSubtitle: "A morte é permanente. Você pode explorar todo o arquivo.",
   causeOfDeath: "Causa da morte",
 
   // Life view labels

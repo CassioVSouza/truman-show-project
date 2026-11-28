@@ -6,7 +6,7 @@ import {
   type Snapshot,
 } from "@truman/contracts";
 
-// Offline/demo fallback dataset so the 3D cabin, timeline scrubber, Life menus,
+// Offline/demo fallback dataset so the 3D cabin, Life menus,
 // and Lab menus can be inspected locally with zero API keys or live backend.
 
 const BASE_MS = Date.now() - 45_000;
@@ -304,6 +304,45 @@ export const DEMO_LOG_ENTRIES: LogEntry[] = [
     caused_by: 103,
     lang: "en",
     hidden: false,
+  },
+];
+
+export interface SearchHistoryItem {
+  id: number;
+  ts: string;
+  tick_id: number | null;
+  query: string;
+  ok: boolean;
+  status: number | null;
+  results: Array<{ title: string; url: string }>;
+  caused_by: number | null;
+  /** Cached PT-BR translation of `query` from the Worker; null for en. */
+  translated?: string | null;
+}
+
+export const DEMO_SEARCHES: SearchHistoryItem[] = [
+  {
+    id: 104,
+    ts: isoAt(60),
+    tick_id: 12,
+    query: "how to keep a stove burning overnight",
+    ok: true,
+    status: 200,
+    results: [
+      { title: "Banking a fire for the night", url: "https://example.org/banking-a-fire" },
+      { title: "Choosing slow-burning wood", url: "https://example.org/slow-burning-wood" },
+    ],
+    caused_by: 103,
+  },
+  {
+    id: 88,
+    ts: isoAt(-7200),
+    tick_id: 7,
+    query: "why is the water cold",
+    ok: false,
+    status: null,
+    results: [],
+    caused_by: null,
   },
 ];
 
