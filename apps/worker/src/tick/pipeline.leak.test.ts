@@ -54,6 +54,21 @@ describe("pipeline prompts over three simulated days", async () => {
     expect(bad.slice(0, 5)).toEqual([]);
   });
 
+  test("dream prompts carry the persona, only plain memory lines, and no hidden state or digits", () => {
+    const dream = (agent?.calls ?? []).filter((c) => c.role === "dream");
+    expect(dream.length).toBeGreaterThan(0);
+    for (const c of dream) {
+      expect(c.system.includes(PERSONA)).toBe(true);
+      expect(scanPrompt(text(c), rules)).toEqual([]);
+      // same rule as Resident prompts: only plain distances in metres (decision 29)
+      for (const m of c.messages
+        .map((x) => x.content)
+        .join(" ")
+        .matchAll(/.{0,25}\d.{0,12}/g))
+        expect(/\d+ m\b/.test(m[0]), m[0]).toBe(true);
+    }
+  });
+
   test("no digits reach the Resident except plain distances in metres (decision 29) and memory citations", () => {
     const bad = new Set<string>();
     for (const c of resident) {

@@ -112,6 +112,9 @@ export function createWebTools(opts: WebToolsOptions = {}): Tools {
         ok: true,
         text: scrub(lines.join("\n\n")).slice(0, MAX_OUTPUT_CHARS),
         source_url: items[0]?.url,
+        results: items
+          .filter((r) => (r.url ?? "").trim())
+          .map((r) => ({ title: scrub((r.title ?? "").trim()), url: (r.url ?? "").trim() })),
         bytes: res.bytes,
         status: res.status,
       };
@@ -161,6 +164,13 @@ export function createWebTools(opts: WebToolsOptions = {}): Tools {
         ok: true,
         text: scrub(lines.join("\n\n")).slice(0, MAX_OUTPUT_CHARS),
         source_url: `https://en.wikipedia.org/wiki/${encodeURIComponent((items[0]?.title ?? "").replace(/ /g, "_"))}`,
+        results: items.map((r) => {
+          const title = (r.title ?? "").trim();
+          return {
+            title: scrub(title),
+            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+          };
+        }),
         bytes: res.bytes,
         status: res.status,
       };

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { Event } from "@truman/contracts";
 import { LogWriter } from "../log";
 import { FakeProvider, LLMError } from "../llm";
-import { InMemoryLease } from "../governor";
+import { InMemoryLease, governorConfigFromEnv } from "../governor";
 import { MemoryRows } from "./memory-log";
 import { runMindTick } from "./pipeline";
 import { SimDb, makeAgent, simulate } from "./testkit";
@@ -18,6 +18,7 @@ describe("FakeProvider-driven life over several simulated days", async () => {
       webSearch: async () => ({
         ok: true,
         text: "Rivers form where rain gathers and runs downhill.",
+        results: [{ title: "River", url: "https://en.wikipedia.org/wiki/River" }],
         bytes: 50,
       }),
       readPage: async (u) => ({ ok: true, text: "A page about water.", source_url: u, bytes: 20 }),
@@ -42,6 +43,45 @@ describe("FakeProvider-driven life over several simulated days", async () => {
     for (const t of ["drink", "eat", "move_to", "rest", "write_journal"])
       expect(types.has(t), t).toBe(true);
     expect(types.size).toBeGreaterThanOrEqual(7);
+  });
+
+  test("web searches and journal entries are stored as queryable log entries (search history)", () => {
+    const all = db.payloads.flatMap((p) => p.log_entries ?? []);
+    const searches = all.filter(
+      (e) => e["kind"] === "tool_call" && (e["data"] as Row)["tool"] === "web_search",
+    );
+    expect(searches.length).toBeGreaterThan(0);
+    for (const e of searches) {
+      const d = e["data"] as { query: string; results: Array<{ url: string }>; ok: boolean };
+      expect(String(e["text"]).length).toBeGreaterThan(1);
+      expect(d.query).toBe(e["text"]);
+      expect(d.ok).toBe(true);
+      expect(d.results[0]?.url).toBe("https://en.wikipedia.org/wiki/River");
+      expect(e["category"]).toBe("lab");
+      expect(e["caused_by_ref"]).toBeTruthy();
+    }
+    expect(all.some((e) => e["kind"] === "journal")).toBe(true);
+  });
+
+  test("sleep produces dream log entries (life, caused by the sleep outcome, with source memories)", () => {
+    const all = db.payloads.flatMap((p) => p.log_entries ?? []);
+    const dreams = all.filter((e) => e["kind"] === "dream");
+    expect(dreams.length).toBeGreaterThan(0);
+    for (const d of dreams) {
+      expect(d["category"]).toBe("life");
+      expect(String(d["text"]).length).toBeGreaterThan(5);
+      expect(d["caused_by_ref"]).toBeTruthy();
+      expect(
+        (d["data"] as { source_memory_ids: number[] }).source_memory_ids.length,
+      ).toBeGreaterThan(0);
+    }
+    expect(
+      all.some((e) => e["kind"] === "memory_write" && (e["data"] as Row)["kind"] === "dream"),
+    ).toBe(true);
+    const dreamCalls = sim.providers
+      .flatMap((p) => (p as FakeProvider).calls)
+      .filter((c) => c.role === "dream");
+    expect(dreamCalls.length).toBe(dreams.length);
   });
 
   test("every action carries thought, intent and expectation; every decision row is complete", () => {
@@ -211,5 +251,42 @@ describe("fallback and failure handling", () => {
     };
     await expect(runMindTick(baseDeps(db, [makeAgent(db)]))).rejects.toThrow("db down");
     expect(db.payloads[0]?.tick.mode).toBe("failed");
+  });
+});
+
+describe("dreams respect the governor and failures", () => {
+  test("a failing dream call does not break the tick or write a dream", async () => {
+    const sim = await simulate({
+      days: 1,
+      providers: (db) => {
+        const agent = makeAgent(db);
+        const inner = agent.complete.bind(agent);
+        agent.complete = async (req) => {
+          if (req.role === "dream") throw new LLMError("Unavailable", "down");
+          return inner(req);
+        };
+        return [agent];
+      },
+    });
+    const all = sim.db.payloads.flatMap((p) => p.log_entries ?? []);
+    expect(all.some((e) => e["kind"] === "dream")).toBe(false);
+    expect(all.some((e) => e["kind"] === "error" && (e["data"] as Row)["dream"] === true)).toBe(
+      true,
+    );
+    expect(sim.db.payloads.every((p) => p.tick.ok)).toBe(true);
+  });
+
+  test("no dream call while the governor is thrifty (Interpreter not allowed)", async () => {
+    const sim = await simulate({
+      days: 2,
+      governor: { ...governorConfigFromEnv({}), maxLlmCallsDay: 40 },
+    });
+    const calls = sim.providers.flatMap((p) => (p as FakeProvider).calls);
+    const modes = new Set(sim.db.payloads.map((p) => p.tick.mode));
+    expect(modes.has("thrifty")).toBe(true);
+    const thriftyTicks = sim.db.payloads.filter((p) => p.tick.mode === "thrifty");
+    for (const p of thriftyTicks)
+      expect((p.log_entries ?? []).some((e) => e["kind"] === "dream")).toBe(false);
+    expect(calls.length).toBeGreaterThan(0);
   });
 });

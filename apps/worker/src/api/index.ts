@@ -15,7 +15,7 @@ import {
   type ApiEnv,
   type EdgeCache,
 } from "./http";
-import { MAX_TRANSLATE_CHARS, translateWithFallback, type Translator } from "./translate";
+import { MAX_SOURCE_CHARS, translateWithFallback, type Translator } from "./translate";
 
 export interface Rpc {
   rpc(name: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -35,6 +35,8 @@ export interface ApiContext {
   now?: () => number;
   limiter?: RateLimiter;
   searchLimiter?: RateLimiter;
+  /** Separate limiter for /api/translate so it does not share the search budget. */
+  translateLimiter?: RateLimiter;
   adminFailures?: RateLimiter;
   beatLimiter?: RateLimiter;
 }
@@ -42,6 +44,7 @@ export interface ApiContext {
 // Per-isolate state (best effort). Real flood control = a Cloudflare rate-limit rule in front of the Worker.
 const defaultLimiter = new RateLimiter(120, 60_000);
 const defaultSearchLimiter = new RateLimiter(20, 60_000);
+const defaultTranslateLimiter = new RateLimiter(30, 60_000);
 const defaultAdminFailures = new RateLimiter(5, 15 * 60_000);
 
 const num = z
@@ -79,8 +82,13 @@ const SearchQuery = z.object({
 const LogQuery = z.object({
   kind: LogKind.optional(),
   category: z.enum(["life", "lab"]).optional(),
+  /** Page older than this id (newest-first paging). */
+  before: num.optional(),
+  /** Only entries newer than this id (polling); still returned newest first. */
   after: num.optional(),
   limit,
+  /** `pt` adds the cached translation as `translated` per item; part of the cache key so EN and PT never mix. */
+  lang,
 });
 const ListQuery = z.object({
   before: num.optional(),
@@ -107,6 +115,8 @@ const LISTS: Record<string, { what: string; ttl: number; lab: boolean }> = {
   traces: { what: "traces", ttl: 30, lab: true },
   tools: { what: "tools", ttl: 30, lab: true },
   errors: { what: "errors", ttl: 30, lab: true },
+  // The Resident's web searches, newest first (public: it is part of its life).
+  searches: { what: "searches", ttl: 30, lab: false },
 };
 
 const queryObject = (url: URL): Record<string, string> => {
@@ -190,10 +200,14 @@ async function handlePublic(
   ctx: ApiContext,
 ): Promise<Response> {
   const now = ctx.now?.() ?? Date.now();
-  const heavy = path === "/api/search" || path === "/api/translate";
-  const wait = (
-    heavy ? (ctx.searchLimiter ?? defaultSearchLimiter) : (ctx.limiter ?? defaultLimiter)
-  ).hit(`${heavy ? "s" : "g"}:${clientKey(req)}`, now);
+  const bucket = path === "/api/translate" ? "t" : path === "/api/search" ? "s" : "g";
+  const limiter =
+    bucket === "t"
+      ? (ctx.translateLimiter ?? defaultTranslateLimiter)
+      : bucket === "s"
+        ? (ctx.searchLimiter ?? defaultSearchLimiter)
+        : (ctx.limiter ?? defaultLimiter);
+  const wait = limiter.hit(`${bucket}:${clientKey(req)}`, now);
   if (wait > 0) return errorJson(429, "too many requests", { "retry-after": String(wait) });
 
   const q = queryObject(url);
@@ -256,13 +270,20 @@ async function handlePublic(
         await ctx.db.rpc("api_log", {
           p_kind: v.kind ?? null,
           p_cat: v.category ?? null,
+          p_before: v.before ?? null,
           p_after: v.after ?? 0,
           p_lim: lim,
+          p_lang: v.lang,
         }),
       );
       const last = out[out.length - 1];
+      // Newest first. next_before pages to older entries; next_after is kept only for old clients (always null).
       return json(
-        { items: out, next_after: out.length === lim && last ? last["id"] : null },
+        {
+          items: out,
+          next_before: out.length === lim && last ? last["id"] : null,
+          next_after: null,
+        },
         200,
         15,
       );
@@ -354,7 +375,7 @@ async function translateRoute(
       86400,
     );
   }
-  if (got.source.length > MAX_TRANSLATE_CHARS)
+  if (got.source.length > MAX_SOURCE_CHARS)
     return errorJson(422, "text too long for server translation");
   if (ctx.translators.length === 0) return errorJson(503, "server translation not configured");
   const allowed = await ctx.db.rpc("usage_try", {
@@ -367,6 +388,8 @@ async function translateRoute(
   try {
     t = await translateWithFallback(ctx.translators, got.source);
   } catch {
+    // the engines did not produce text: give the daily slot back
+    await ctx.db.rpc("usage_refund", { p_tool: "translate_server" }).catch(() => undefined);
     return errorJson(502, "translation unavailable");
   }
   await ctx.db.rpc("translation_put", {

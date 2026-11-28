@@ -228,6 +228,8 @@ export function makeAgent(db: SimDb, opts: AgentOptions = {}): FakeProvider {
   let step = 0;
   return new FakeProvider("fake", (req: RawRequest) => {
     if (req.role === "interpreter") return NEUTRAL_APPRAISAL;
+    if (req.role === "dream")
+      return { dream: "I walked a long shore where the water remembered my steps." };
     const m = db.mind;
     const action = m
       ? policy(m, step++)

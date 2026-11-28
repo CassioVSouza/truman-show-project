@@ -10,10 +10,23 @@ import { createWebTools } from "./tools";
 import { handleApi } from "./api";
 import { parseOrigins } from "./api/http";
 import { MyMemoryTranslator, WorkersAiTranslator, type Translator } from "./api/translate";
+import { runTranslateBatch } from "./translate-job";
 import { createSnapshotPublisher, type SnapshotWriter } from "./snapshot";
 import { makePagesSnapshotWriter } from "./snapshot/pages";
 
-const DEFAULT_TRANSLATE_DAY = 150;
+const DEFAULT_TRANSLATE_DAY = 400;
+
+export function translatorsFromEnv(env: Env): Translator[] {
+  const translators: Translator[] = [];
+  if (env.AI) translators.push(new WorkersAiTranslator(env.AI));
+  translators.push(new MyMemoryTranslator());
+  return translators;
+}
+
+export function translateDayCap(env: Env): number {
+  const cap = Number(env.TRANSLATE_SERVER_DAY);
+  return Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TRANSLATE_DAY;
+}
 
 export interface LiveTickOptions {
   db?: Db;
@@ -84,10 +97,7 @@ export default {
         headers: { "content-type": "application/json" },
       });
     }
-    const translators: Translator[] = [];
-    if (env.AI) translators.push(new WorkersAiTranslator(env.AI));
-    translators.push(new MyMemoryTranslator());
-    const cap = Number(env.TRANSLATE_SERVER_DAY);
+    const translators = translatorsFromEnv(env);
     return handleApi(
       request,
       {
@@ -95,7 +105,7 @@ export default {
         env: { allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS) },
         adminToken: env.ADMIN_TOKEN,
         translators,
-        translateDayCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TRANSLATE_DAY,
+        translateDayCap: translateDayCap(env),
         // admin "tick now": fresh SupabaseDb inside runLiveTick so subrequest budget is not shared with the API call
         runTick: () => runLiveTick(env),
         startResident: () =>
@@ -110,6 +120,26 @@ export default {
     } catch (e) {
       // never log secret values
       console.error("tick failed:", redact(e instanceof Error ? e.message : String(e), env));
+    }
+    // background translation cache fill; independent of the tick and never throws
+    try {
+      const r = await runTranslateBatch({
+        db: new SupabaseDb(readConfig(env)),
+        translators: translatorsFromEnv(env),
+        dayCap: translateDayCap(env),
+        scrub: (m) => redact(m, env),
+      });
+      if (r.errors.length > 0)
+        console.error({
+          event: "translate_batch_errors",
+          translated: r.translated,
+          errors: r.errors,
+        });
+    } catch (e) {
+      console.error(
+        "translate batch failed:",
+        redact(e instanceof Error ? e.message : String(e), env),
+      );
     }
   },
 };

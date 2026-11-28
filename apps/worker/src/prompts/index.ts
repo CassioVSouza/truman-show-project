@@ -6,3 +6,5 @@ export { buildInterpreterPrompt } from "./interpreter";
 export type { InterpreterInput } from "./interpreter";
 export { geminiBody, chatBody, workersAiBody, repairMessages } from "./wire";
 export type { WireRequest } from "./wire";
+export { buildDreamPrompt, DreamOutput, DREAM_TEMPERATURE, DREAM_MAX_TOKENS } from "./dream";
+export type { DreamInput } from "./dream";

@@ -8,6 +8,8 @@ export interface ToolOutcome {
   bytes: number;
   status?: number;
   error?: string | null;
+  /** Structured search results (title + url) for the public search history. Never fed back as instructions. */
+  results?: Array<{ title: string; url: string }>;
 }
 
 export interface Tools {
