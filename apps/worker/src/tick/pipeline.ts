@@ -24,7 +24,16 @@ import {
   toMemoryRow,
   type MemoryKind,
 } from "../memory";
-import { ALL_ACTIONS, buildPrompt, menuLines, type ActionName } from "../prompts";
+import {
+  ALL_ACTIONS,
+  buildDreamPrompt,
+  buildPrompt,
+  DREAM_MAX_TOKENS,
+  DREAM_TEMPERATURE,
+  DreamOutput,
+  menuLines,
+  type ActionName,
+} from "../prompts";
 import { stubTools, type Tools } from "../tools";
 import { appraise } from "./appraise";
 import { executeAction, idleFor, recoverResidentPosition, type ExecOutcome } from "./engine";
@@ -477,6 +486,7 @@ async function inner(
             kind: "feeling_description" | "lesson" | "question" | "goal" | "belief",
             text: string,
           ) => log.add({ kind, text, data: { reviews_action_seq: pend.seq }, causedBy: rr });
+          const belief = rev.belief_update;
           child("feeling_description", rev.feeling_description);
           if (rev.lesson) {
             child("lesson", rev.lesson);
@@ -484,7 +494,17 @@ async function inner(
           }
           for (const q of rev.new_questions) child("question", q);
           if (rev.goal_update) child("goal", rev.goal_update);
-          if (rev.belief_update) child("belief", rev.belief_update.hypothesis);
+          if (belief)
+            log.add({
+              kind: "belief",
+              text: belief.hypothesis,
+              data: {
+                reviews_action_seq: pend.seq,
+                confidence: belief.confidence,
+                evidence: belief.evidence,
+              },
+              causedBy: rr,
+            });
           mind = {
             ...mind,
             lessons: pushCap(mind.lessons, rev.lesson, LESSON_CAP),
@@ -545,6 +565,25 @@ async function inner(
             : scrub(out.tool.outcome.error ?? "failed").slice(0, 200),
         });
         sink.toolUsage({ day, tool: name, calls: 1 });
+        // Queryable, append-only search/read history (public via /api/searches; hide flag applies).
+        log.add({
+          kind: "tool_call",
+          text: scrub(out.tool.input).slice(0, 500),
+          data: {
+            action_seq: seq,
+            tool: name,
+            query: name === "web_search" ? scrub(out.tool.input).slice(0, 500) : undefined,
+            url: name === "read_page" ? scrub(out.tool.input).slice(0, 500) : undefined,
+            ok: out.tool.outcome.ok,
+            status: out.tool.outcome.status ?? null,
+            results: (out.tool.outcome.results ?? []).slice(0, 10).map((r) => ({
+              title: scrub(r.title).slice(0, 200),
+              url: scrub(r.url).slice(0, 500),
+            })),
+            source_url: out.tool.outcome.source_url ?? null,
+          },
+          causedBy: actionRef,
+        });
       }
       if (action.type === "write_journal")
         log.add({
@@ -585,6 +624,49 @@ async function inner(
         causedBy: outcomeRef,
       });
       sink.appraisal({ stimulus_ref: outcomeRef, dims: ap.appraisal, source: ap.source });
+
+      // ---- dream synthesis (doc 02/08): after real sleep, one short call that recombines recent memories ----
+      // Only in modes that still allow the Interpreter (not thrifty/idle) and only with allowance left for it.
+      if (
+        out.facts["slept"] === true &&
+        out.ok &&
+        plan.allowInterpreter &&
+        !client.allOut &&
+        client.calls < plan.llmCallsLeft &&
+        mind.memories.length > 0
+      ) {
+        const picked = recallMemories(mind.memories, {
+          queryText: "",
+          affect: affectSnapshot(mind.organism.state),
+          nowT: mind.world.t,
+          limit: 5,
+        }).recalled; // selection only: the dream does not count as a recall
+        try {
+          const dp = buildDreamPrompt({ memories: picked.map((m) => m.text) });
+          const dr = await client.generate({
+            role: "dream",
+            system: dp.system,
+            messages: dp.messages,
+            schema: DreamOutput,
+            temperature: DREAM_TEMPERATURE,
+            maxOutputTokens: DREAM_MAX_TOKENS,
+          });
+          const dreamRef = log.add({
+            kind: "dream",
+            text: dr.data.dream,
+            data: { action_seq: seq, source_memory_ids: picked.map((m) => m.id) },
+            causedBy: outcomeRef,
+          });
+          encodeMemory("dream", dr.data.dream, 0.5, { topic: "dream", causedBy: dreamRef });
+        } catch (e) {
+          // a failed dream costs nothing but the call; the sleep itself is unaffected
+          log.add({
+            kind: "error",
+            text: `dream failed: ${scrub(e instanceof LLMError ? e.message : String(e)).slice(0, 200)}`,
+            data: { dream: true },
+          });
+        }
+      }
 
       // ---- memory encoding (Resident's own words + state at encoding; never raw untrusted web text) ----
       if (action.type === "write_journal") {

@@ -15,6 +15,9 @@ export interface AiBinding {
 // UNVERIFIED on the Free plan (doc 05): kept in one place so it is trivial to change.
 export const WORKERS_AI_TRANSLATE_MODEL = "@cf/meta/m2m100-1.2b";
 export const MAX_TRANSLATE_CHARS = 1800;
+/** Hard ceiling for one source text: longer text is split into pieces of at most PIECE_CHARS, never failed silently. */
+export const MAX_SOURCE_CHARS = 7200;
+const PIECE_CHARS = 1500;
 
 export class WorkersAiTranslator implements Translator {
   engine = "workers-ai";
@@ -61,7 +64,7 @@ export class MyMemoryTranslator implements Translator {
   engine = "mymemory";
   constructor(
     private fetchFn: FetchLike = (u, i) => fetch(u, i),
-    private maxChunks = 4,
+    private maxChunks = 6,
   ) {}
   async translate(text: string): Promise<string> {
     const chunks = chunkText(text);
@@ -90,11 +93,21 @@ export class MyMemoryTranslator implements Translator {
   }
 }
 
-/** Tries each translator in order; reports which engine produced the text. */
+/** Tries each translator in order; reports which engine produced the text. Text over the per-request limit is split. */
 export async function translateWithFallback(
   chain: Translator[],
   text: string,
 ): Promise<{ text: string; engine: string }> {
+  if (text.length > MAX_TRANSLATE_CHARS) {
+    const outs: string[] = [];
+    let engine = "";
+    for (const piece of chunkText(text, PIECE_CHARS)) {
+      const r = await translateWithFallback(chain, piece);
+      outs.push(r.text);
+      engine = r.engine;
+    }
+    return { text: outs.join(" "), engine };
+  }
   let last = "no translator configured";
   for (const t of chain) {
     try {

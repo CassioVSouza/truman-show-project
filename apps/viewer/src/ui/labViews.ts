@@ -1,7 +1,8 @@
 import type { Event, Snapshot } from "@truman/contracts";
 import type { ViewerApiClient } from "../api/client";
-import { t, type UiLang } from "../i18n";
+import { t, toApiLang, type UiLang } from "../i18n";
 import { clear, el, formatDateTime } from "./dom";
+import { kvRowT } from "./translatable";
 
 export type LabTab = "organism" | "appraisals" | "traces" | "governor" | "rawlog";
 
@@ -188,9 +189,9 @@ export async function renderLabTab(
               el("span", { class: "meta-ts" }, formatDateTime(str(d["ts"]))),
             ),
             kvGroup([
-              kvRow(t(lang, "intentLabel"), str(d["intent"])),
-              kvRow(t(lang, "expectationLabel"), str(d["expectation"])),
-              kvRow(t(lang, "outcomeLabel"), str(d["outcome"])),
+              kvRowT(t(lang, "intentLabel"), str(d["intent"]), lang),
+              kvRowT(t(lang, "expectationLabel"), str(d["expectation"]), lang),
+              kvRowT(t(lang, "outcomeLabel"), str(d["outcome"]), lang),
             ]),
           ),
         );
@@ -388,7 +389,8 @@ export async function renderLabTab(
   }
 
   // tab === "rawlog"
-  const logRes = await api.getLog({ limit: 50 });
+  const logRes = await api.getLog({ limit: 50, lang: toApiLang(lang) });
+  const newestEvents = [...events].sort((a, b) => b.seq - a.seq);
   clear(container);
   container.appendChild(el("div", { class: "lab-banner" }, t(lang, "labDisclaimer")));
 
@@ -411,7 +413,7 @@ export async function renderLabTab(
           onClick: () =>
             downloadBlob(
               "truman-raw-log.json",
-              JSON.stringify({ events, log: logRes.items }, null, 2),
+              JSON.stringify({ events: newestEvents, log: logRes.items }, null, 2),
               "application/json",
             ),
         },
@@ -461,8 +463,12 @@ export async function renderLabTab(
   const eventsBox = el(
     "details",
     { class: "panel-box panel-details" },
-    el("summary", { class: "panel-summary" }, `${t(lang, "rawEventsTitle")} (${events.length})`),
-    el("pre", { class: "code-block" }, JSON.stringify(events, null, 2)),
+    el(
+      "summary",
+      { class: "panel-summary" },
+      `${t(lang, "rawEventsTitle")} (${newestEvents.length})`,
+    ),
+    el("pre", { class: "code-block" }, JSON.stringify(newestEvents, null, 2)),
   );
 
   container.append(exportBar, logList, eventsBox);

@@ -294,6 +294,7 @@ describe("createWebTools (mocked fetch, zero network)", () => {
     const res = await tools.webSearch("river");
     expect(res.ok).toBe(true);
     expect(res.text).toContain("A river is a natural stream.");
+    expect(res.results).toEqual([{ title: "River", url: "https://en.wikipedia.org/wiki/River" }]);
   });
 
   test("readPage strips HTML scripts/styles while preserving content without filtering", async () => {

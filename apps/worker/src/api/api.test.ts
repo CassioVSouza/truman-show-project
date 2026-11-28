@@ -307,12 +307,37 @@ describe("lists and lab", () => {
       api_trace: { id: 4, response: "full text" },
       api_governor: { mode: "normal", db_size_bytes: 460 * 1024 * 1024, usage: [] },
     });
-    const log = await handleApi(get("/api/log?kind=thought&after=10&limit=2"), mk(db));
-    expect(((await log.json()) as { next_after: number }).next_after).toBe(12);
+    const log = await handleApi(get("/api/log?kind=thought&before=20&limit=2"), mk(db));
+    expect(((await log.json()) as { next_before: number }).next_before).toBe(12);
+    expect(db.calls.at(-1)).toMatchObject({
+      name: "api_log",
+      args: { p_before: 20, p_after: 0, p_lang: "en" },
+    });
+    await handleApi(get("/api/log?kind=thought&before=20&limit=2&lang=pt"), mk(db));
+    expect(db.calls.at(-1)).toMatchObject({ name: "api_log", args: { p_lang: "pt" } });
+    expect((await handleApi(get("/api/log?lang=fr"), mk(db))).status).toBe(400);
     expect((await handleApi(get("/api/lab/traces/4"), mk(db))).status).toBe(200);
     const gov = await handleApi(get("/api/lab/governor"), mk(db));
     expect(((await gov.json()) as { size: { mode: string } }).size.mode).toBe("degraded");
     expect((await handleApi(get("/api/log?kind=bogus"), mk(db))).status).toBe(400);
+  });
+  test("searches list is public, newest first, paged by before", async () => {
+    const db = new FakeRpc({
+      api_list: [
+        { id: 9, query: "b", results: [] },
+        { id: 8, query: "a", results: [] },
+      ],
+    });
+    const r = await handleApi(get("/api/searches?limit=2&before=20"), mk(db));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ next_before: 8 });
+    expect(db.calls.at(-1)).toMatchObject({
+      name: "api_list",
+      args: { p_what: "searches", p_before: 20, p_lim: 2, p_lang: "en" },
+    });
+    await handleApi(get("/api/searches?limit=2&before=20&lang=pt"), mk(db));
+    expect(db.calls.at(-1)).toMatchObject({ args: { p_what: "searches", p_lang: "pt" } });
+    expect((await handleApi(get("/api/lab/searches"), mk(new FakeRpc()))).status).toBe(404);
   });
   test("size governor thresholds: 80% archive, 90% degraded", () => {
     expect(sizeMode(79, 100)).toBe("ok");
@@ -371,6 +396,50 @@ describe("translation cache", () => {
       (await handleApi(get("/api/translate?entity=journal&id=1&lang=fr"), mk(new FakeRpc())))
         .status,
     ).toBe(400);
+  });
+  test("failed translation refunds the daily slot", async () => {
+    const db = new FakeRpc({ ...miss, usage_try: true, usage_refund: true });
+    const r = await handleApi(get(q), mk(db, { translators: [bad] }));
+    expect(r.status).toBe(502);
+    expect(db.count("usage_refund")).toBe(1);
+  });
+  test("translate has its own limiter, separate from search", async () => {
+    const db = new FakeRpc({ ...miss, usage_try: true, translation_put: true });
+    const ctx = mk(db, {
+      translators: [ok],
+      translateLimiter: new RateLimiter(1, 60_000),
+      searchLimiter: new RateLimiter(1000, 60_000),
+    });
+    expect((await handleApi(get(q), ctx)).status).toBe(200);
+    expect(
+      (await handleApi(get("/api/translate?entity=log_entries&id=8&lang=pt"), ctx)).status,
+    ).toBe(429);
+    expect((await handleApi(get("/api/search?q=zebra"), ctx)).status).not.toBe(429);
+  });
+  test("every viewer entity is accepted; long text is split, over-ceiling is 422", async () => {
+    for (const e of ["log_entries", "journal", "dreams", "beliefs", "memories"]) {
+      const db = new FakeRpc({ ...miss, usage_try: true, translation_put: true });
+      const r = await handleApi(
+        get(`/api/translate?entity=${e}&id=1&lang=pt`),
+        mk(db, { translators: [ok] }),
+      );
+      expect(r.status).toBe(200);
+    }
+    const long = Array.from({ length: 100 }, () => "This is a sentence.").join(" "); // ~1900 chars
+    const db = new FakeRpc({
+      translation_lookup: { source: long, translated: null, engine: null },
+      usage_try: true,
+      translation_put: true,
+    });
+    const r = await handleApi(get(q), mk(db, { translators: [ok] }));
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { text: string };
+    expect(body.text.startsWith("PT(")).toBe(true);
+    expect(body.text.match(/PT\(/g)!.length).toBeGreaterThan(1);
+    const huge = new FakeRpc({
+      translation_lookup: { source: "x".repeat(7201), translated: null, engine: null },
+    });
+    expect((await handleApi(get(q), mk(huge, { translators: [ok] }))).status).toBe(422);
   });
   test("fallback order, chunking and MyMemory quota warnings", async () => {
     expect(await translateWithFallback([bad, ok], "hi")).toEqual({

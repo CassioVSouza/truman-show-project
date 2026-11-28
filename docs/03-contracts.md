@@ -39,7 +39,8 @@ The static Pages host serves `GET /live.json`, a single JSON object with `snapsh
 | Route | Returns | Cache |
 |---|---|---|
 | `/api/search?q=&kinds=&category=&from=&to=&lang=&before_id=` | SearchResponse | 60 s |
-| `/api/log?kind=&category=&after=` | LogEntry[] | 15 s |
+| `/api/log?kind=&category=&before=&after=&limit=&lang=` | `{items: (LogEntry & {translated: string or null})[] (newest first), next_before}`; `translated` is the cached translation for `lang=pt` (null when none or `lang=en`); `lang` is part of the cache key | 15 s |
+| `/api/searches?before=&limit=&lang=` | `{items: [{id, ts, tick_id, query, ok, status, results:[{title,url}], caused_by, translated}] (newest first), next_before}` | 30 s |
 | `/api/context/:entryId` | entry + causes chain + consequences chain + body state + trace refs | 60 s |
 | `/api/journal`, `/api/dreams`, `/api/beliefs`, `/api/memories`, `/api/ideas` (`lang=en|pt`) | life lists | 60 s |
 | `/api/lab/organism?from=&to=` | organism + physiology + emotion label series | 30 s |

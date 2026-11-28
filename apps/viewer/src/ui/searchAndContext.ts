@@ -2,8 +2,11 @@ import type { ContextResponse, LogEntry, SearchResponse } from "@truman/contract
 import type { ViewerApiClient } from "../api/client";
 import { t, toApiLang, type UiLang } from "../i18n";
 import { clear, el, formatDateTime } from "./dom";
+import { entityFallback, translatedParagraph } from "./translatable";
 
 export interface SearchPaletteHandlers {
+  /** Used for on-demand translation of result text in PT-BR. */
+  api: ViewerApiClient;
   onSubmitQuery: (query: string) => void;
   onFilterCategory: (cat: "all" | "life" | "lab") => void;
   onInspectContext: (entryId: number) => void;
@@ -94,6 +97,15 @@ export function renderSearchPalette(
   } else {
     const list = el("div", { class: "card-list" });
     for (const item of response.results) {
+      // With lang=pt the API may already return the cached translation in `text` and the source in `text_en`.
+      const hasCached = lang !== "en" && typeof item.text_en === "string" && item.text_en !== "";
+      const res = translatedParagraph(
+        "entry-text",
+        hasCached ? item.text_en! : item.text,
+        lang,
+        hasCached ? item.text : null,
+        entityFallback(handlers.api, "log_entries", item.id),
+      );
       list.appendChild(
         el(
           "article",
@@ -103,6 +115,7 @@ export function renderSearchPalette(
             { class: "entry-meta" },
             el("span", { class: `tag tag-${item.category}` }, item.category.toUpperCase()),
             el("span", { class: "tag" }, item.kind),
+            lang === "en" ? null : res.tag,
             el("span", { class: "meta-ts tabular-num" }, formatDateTime(item.ts)),
             el(
               "button",
@@ -114,7 +127,7 @@ export function renderSearchPalette(
               t(lang, "inspectContext"),
             ),
           ),
-          el("p", { class: "entry-text" }, item.text),
+          res.p,
         ),
       );
     }
@@ -134,10 +147,18 @@ export function renderSearchPalette(
 }
 
 function renderEntryMini(
+  api: ViewerApiClient,
   entry: LogEntry,
   lang: UiLang,
   onSelect: (id: number) => void,
 ): HTMLElement {
+  const text = translatedParagraph(
+    "entry-text",
+    entry.text,
+    lang,
+    null,
+    entityFallback(api, "log_entries", entry.id),
+  );
   return el(
     "div",
     { class: "context-node" },
@@ -145,6 +166,7 @@ function renderEntryMini(
       "div",
       { class: "entry-meta" },
       el("span", { class: `tag tag-${entry.category}` }, entry.kind),
+      lang === "en" ? null : text.tag,
       el("span", { class: "meta-ts tabular-num" }, `#${entry.id} · ${formatDateTime(entry.ts)}`),
       el(
         "button",
@@ -152,7 +174,7 @@ function renderEntryMini(
         t(lang, "inspectContext"),
       ),
     ),
-    el("p", { class: "entry-text" }, entry.text),
+    text.p,
   );
 }
 
@@ -163,6 +185,7 @@ export async function openContextModal(
   lang: UiLang,
 ): Promise<void> {
   modal.hidden = false;
+  modal.dataset["entryId"] = String(entryId);
   clear(modal);
   const loading = el(
     "div",
@@ -191,13 +214,14 @@ export async function openContextModal(
     );
     return;
   }
-  renderContextModalContent(modal, data, lang, (nextId) => {
+  renderContextModalContent(modal, api, data, lang, (nextId) => {
     void openContextModal(modal, api, nextId, lang);
   });
 }
 
 function renderContextModalContent(
   modal: HTMLElement,
+  api: ViewerApiClient,
   ctx: ContextResponse,
   lang: UiLang,
   onSelectEntry: (id: number) => void,
@@ -215,7 +239,7 @@ function renderContextModalContent(
       : el(
           "div",
           { class: "context-chain" },
-          ...ctx.causes.map((c) => renderEntryMini(c, lang, onSelectEntry)),
+          ...ctx.causes.map((c) => renderEntryMini(api, c, lang, onSelectEntry)),
         );
 
   const consequencesEl =
@@ -224,7 +248,7 @@ function renderContextModalContent(
       : el(
           "div",
           { class: "context-chain" },
-          ...ctx.consequences.map((c) => renderEntryMini(c, lang, onSelectEntry)),
+          ...ctx.consequences.map((c) => renderEntryMini(api, c, lang, onSelectEntry)),
         );
 
   const bodyEl = ctx.body
@@ -242,6 +266,13 @@ function renderContextModalContent(
       )
     : el("p", { class: "muted-note" }, "—");
 
+  const current = translatedParagraph(
+    "entry-text",
+    ctx.entry.text,
+    lang,
+    null,
+    entityFallback(api, "log_entries", ctx.entry.id),
+  );
   const card = el(
     "div",
     { class: "modal-card" },
@@ -261,9 +292,10 @@ function renderContextModalContent(
         "div",
         { class: "entry-meta" },
         el("span", { class: `tag tag-${ctx.entry.category}` }, ctx.entry.kind),
+        lang === "en" ? null : current.tag,
         el("span", { class: "meta-ts tabular-num" }, formatDateTime(ctx.entry.ts)),
       ),
-      el("p", { class: "entry-text" }, ctx.entry.text),
+      current.p,
       Object.keys(ctx.entry.data).length > 0
         ? el("pre", { class: "code-block" }, JSON.stringify(ctx.entry.data, null, 2))
         : null,

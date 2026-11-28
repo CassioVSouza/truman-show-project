@@ -108,30 +108,7 @@ export function formatWorldChip(input: WorldChipInput, lang: UiLang): WorldChipD
 
 export type MarkerTone = "thought" | "action" | "alert" | "other";
 
-export interface TimelineMarker {
-  seq: number;
-  atMs: number;
-  pct: number;
-  kind: Event["kind"];
-  tone: MarkerTone;
-  label: string;
-  timeText: string;
-}
-
-const TONE_PRIORITY: Record<MarkerTone, number> = {
-  alert: 4,
-  thought: 3,
-  action: 2,
-  other: 1,
-};
-
-function markerPriority(marker: TimelineMarker): number {
-  // A thinking cue stands in for a decision when there is no action to show nearby.
-  if (marker.kind === "anim" && marker.tone === "thought") return 1.5;
-  return TONE_PRIORITY[marker.tone];
-}
-
-function truncate(text: string, maxLen: number): string {
+export function truncate(text: string, maxLen: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= maxLen) return clean;
   return `${clean.slice(0, maxLen - 1)}…`;
@@ -174,52 +151,6 @@ export function describeEvent(ev: Event): { tone: MarkerTone; label: string } | 
     default:
       return null;
   }
-}
-
-export function buildTimelineMarkers(
-  events: readonly Event[],
-  windowStartMs: number,
-  windowEndMs: number,
-  minGapPct = 0.9,
-): TimelineMarker[] {
-  const span = Math.max(1000, windowEndMs - windowStartMs);
-  const raw: TimelineMarker[] = [];
-
-  for (const ev of events) {
-    const desc =
-      ev.kind === "anim" && ev.data.name === "thinking"
-        ? { tone: "thought" as const, label: "Thinking" }
-        : describeEvent(ev);
-    if (!desc) continue;
-    const atMs = Date.parse(ev.t_start);
-    if (!Number.isFinite(atMs) || atMs < windowStartMs || atMs > windowEndMs) continue;
-    const pct = Math.max(0, Math.min(100, ((atMs - windowStartMs) / span) * 100));
-    raw.push({
-      seq: ev.seq,
-      atMs,
-      pct,
-      kind: ev.kind,
-      tone: desc.tone,
-      label: desc.label,
-      timeText: formatTime(ev.t_start),
-    });
-  }
-
-  raw.sort((a, b) => a.pct - b.pct || markerPriority(b) - markerPriority(a));
-
-  // Deduplicate overlapping markers while keeping the highest-priority tone
-  const result: TimelineMarker[] = [];
-  for (const marker of raw) {
-    const prev = result[result.length - 1];
-    if (prev && Math.abs(marker.pct - prev.pct) < minGapPct) {
-      if (markerPriority(marker) > markerPriority(prev)) {
-        result[result.length - 1] = marker;
-      }
-      continue;
-    }
-    result.push(marker);
-  }
-  return result;
 }
 
 export type VitalTrend = "up" | "down" | "flat";
@@ -305,13 +236,7 @@ export function extractRecentActivity(
 }
 
 export type ShortcutAction =
-  | "escape"
-  | "search"
-  | "camera-follow"
-  | "camera-cabin"
-  | "camera-world"
-  | "toggle-play"
-  | "toggle-cinema";
+  "escape" | "search" | "camera-follow" | "camera-cabin" | "camera-world" | "toggle-cinema";
 
 export interface ShortcutKeyEvent {
   key: string;
@@ -345,8 +270,6 @@ export function resolveShortcut(e: ShortcutKeyEvent): ShortcutAction | null {
       return "camera-cabin";
     case "3":
       return "camera-world";
-    case " ":
-      return e.target?.tagName?.toUpperCase() === "BUTTON" ? null : "toggle-play";
     case "h":
     case "H":
       return "toggle-cinema";

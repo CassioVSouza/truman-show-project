@@ -2,7 +2,7 @@ import type { Event, ReplaySnapshot, SearchResponse, Snapshot } from "@truman/co
 import "./styles.css";
 import { ViewerBeat, getViewerToken } from "./api/viewerBeat";
 import { createViewerApiClient, type SnapshotFeedResult, type StatusPayload } from "./api/client";
-import { stationLabel, t, translateDynamic, type UiLang } from "./i18n";
+import { stationLabel, t, type UiLang } from "./i18n";
 import { WorldScene, type CameraMode } from "./scene/worldScene";
 import {
   evaluateTimeline,
@@ -28,18 +28,17 @@ import {
   formatDecisionCountdown,
   formatWorldChip,
   resolveShortcut,
+  truncate,
   type VitalsSnapshot,
   type VitalTrends,
 } from "./ui/hudHelpers";
 import { renderLabTab, type LabTab } from "./ui/labViews";
 import { renderLifeTab, type LifeTab } from "./ui/lifeViews";
+import { bindTranslation, entityFallback } from "./ui/translatable";
 import { openContextModal, renderSearchPalette, runSearch } from "./ui/searchAndContext";
-import { TimelineBar } from "./ui/timelineBar";
 import { renderVitalsHud } from "./ui/vitalsHud";
 
 type Section = "life" | "lab";
-
-const SPEEDS = [1, 2, 5];
 
 class ViewerApp {
   private readonly api = createViewerApiClient();
@@ -63,9 +62,6 @@ class ViewerApp {
   private status: StatusPayload | null = null;
   private feedState: SnapshotFeedResult["state"] | "loading" = "loading";
 
-  private isLive = true;
-  private isPlaying = true;
-  private speedIdx = 0;
   private playheadMs = Date.now();
   private cameraMode: CameraMode = "follow";
 
@@ -97,8 +93,6 @@ class ViewerApp {
   private recentFeedEl!: HTMLElement;
   private cinemaExitEl!: HTMLElement;
   private hudSidebarEl!: HTMLElement;
-  private timelineBarEl!: HTMLElement;
-  private timelineBar!: TimelineBar;
   private tabPopupBackdropEl!: HTMLElement;
   private tabPopupPanelEl!: HTMLElement;
   private tabPopupHeaderEl!: HTMLElement;
@@ -206,12 +200,6 @@ class ViewerApp {
         case "camera-world":
           this.setCameraMode("world");
           break;
-        case "toggle-play":
-          if (this.snapshot) {
-            e.preventDefault();
-            this.togglePlayback();
-          }
-          break;
         case "toggle-cinema":
           this.setCinemaMode(!this.cinemaMode);
           break;
@@ -310,29 +298,6 @@ class ViewerApp {
       }
     });
 
-    this.timelineBarEl = el("footer", { class: "timeline-bar" });
-    this.timelineBar = new TimelineBar(this.timelineBarEl, {
-      onToggleLive: () => {
-        this.isLive = true;
-        this.isPlaying = true;
-        this.playheadMs = this.livePlayback
-          ? livePlayhead(this.livePlayback, performance.now())
-          : (this.timelineBounds?.startMs ?? this.playheadMs);
-        this.renderFrame();
-      },
-      onTogglePlay: () => this.togglePlayback(),
-      onScrub: (nextMs) => {
-        this.isLive = false;
-        this.isPlaying = false;
-        this.playheadMs = nextMs;
-        this.renderFrame();
-      },
-      onCycleSpeed: () => {
-        if (this.feedState !== "demo") this.isLive = false;
-        this.speedIdx = (this.speedIdx + 1) % SPEEDS.length;
-        this.renderFrame();
-      },
-    });
     this.mainAreaEl = el("main", { class: "main-area" }, this.liveGridEl);
     this.contextModalEl = el("div", { class: "modal-backdrop" });
     this.contextModalEl.hidden = true;
@@ -347,7 +312,6 @@ class ViewerApp {
       this.topbarEl,
       this.subnavEl,
       this.mainAreaEl,
-      this.timelineBarEl,
       this.tabPopupBackdropEl,
       this.searchPaletteEl,
       this.contextModalEl,
@@ -420,9 +384,7 @@ class ViewerApp {
               Date.now(),
               localTime,
             );
-        if (!this.isLive) {
-          this.playheadMs = Math.min(endMs, Math.max(startMs, this.playheadMs));
-        } else if (this.livePlayback) {
+        if (this.livePlayback) {
           this.playheadMs = livePlayhead(this.livePlayback, localTime);
         } else if (!wasDemo) {
           this.playheadMs = startMs + 8_000;
@@ -430,8 +392,10 @@ class ViewerApp {
         this.renderFrame();
       }
 
-      if (!this.api.snapshotBase && this.popupOpen) {
-        void this.renderActiveContentTab();
+      // Open tabs must follow the live feed: with a static snapshot host the poll only brings new data
+      // when the snapshot changes, so refresh then; with a direct API every poll refreshes.
+      if (this.popupOpen && (newSnapshot || !this.api.snapshotBase)) {
+        void this.renderActiveContentTab(true);
       }
     } finally {
       if (this.api.snapshotBase || this.api.apiBase) {
@@ -443,18 +407,6 @@ class ViewerApp {
     }
   }
 
-  private togglePlayback(): void {
-    this.isPlaying = !this.isPlaying;
-    const bounds = this.timelineBounds;
-    if (!this.isPlaying) {
-      this.isLive = false;
-    } else if (bounds && this.playheadMs >= bounds.endMs) {
-      this.isLive = false;
-      this.playheadMs = bounds.startMs;
-    }
-    this.renderFrame();
-  }
-
   private startPlaybackClock(): void {
     let last = performance.now();
     window.setInterval(() => {
@@ -462,18 +414,13 @@ class ViewerApp {
       const dt = now - last;
       last = now;
       if (!this.snapshot || !this.timelineBounds) return;
-      if (this.isPlaying) {
-        if (this.isLive && this.livePlayback) {
-          this.playheadMs = livePlayhead(this.livePlayback, now);
-        } else {
-          const { startMs, endMs } = this.timelineBounds;
-          const speed = SPEEDS[this.speedIdx] ?? 1;
-          this.playheadMs += dt * speed;
-          if (this.playheadMs >= endMs) {
-            this.playheadMs = this.feedState === "demo" ? startMs : endMs;
-            if (this.feedState !== "demo") this.isPlaying = false;
-          }
-        }
+      if (this.livePlayback) {
+        this.playheadMs = livePlayhead(this.livePlayback, now);
+      } else {
+        // Demo data only: loop a sample day at real speed.
+        const { startMs, endMs } = this.timelineBounds;
+        this.playheadMs += dt;
+        if (this.playheadMs >= endMs) this.playheadMs = startMs;
       }
       this.renderFrame();
     }, TIMELINE_SAMPLE_MS);
@@ -585,6 +532,7 @@ class ViewerApp {
         ["actions", t(this.lang, "navActions")],
         ["memories", t(this.lang, "navMemories")],
         ["questions", t(this.lang, "navQuestionsLessons")],
+        ["searches", t(this.lang, "navSearches")],
       ];
       for (const [id, label] of lifeTabs) {
         const isActive =
@@ -690,7 +638,6 @@ class ViewerApp {
     }
     if (this.feedBadgeEl.textContent !== badge) this.feedBadgeEl.textContent = badge;
 
-    this.timelineBarEl.hidden = !snapshot;
     this.feedNoticeEl.hidden = !!snapshot;
     this.feedNoticeEl.textContent =
       this.feedState === "loading"
@@ -792,14 +739,11 @@ class ViewerApp {
   private renderFrame(): void {
     const snapshot = this.snapshot;
     if (!snapshot || !this.timelineBounds) return;
-    const baseline =
-      this.isLive && !snapshot.resident.vitals.alive
-        ? snapshot
-        : snapshotAt(snapshot, this.replaySnapshots, this.playheadMs);
+    const baseline = !snapshot.resident.vitals.alive
+      ? snapshot
+      : snapshotAt(snapshot, this.replaySnapshots, this.playheadMs);
     const evaluated = evaluateTimeline(baseline, this.events, this.playheadMs, this.timelineBounds);
-    const speed = SPEEDS[this.speedIdx] ?? 1;
-    const playbackRate = this.isLive && this.feedState !== "demo" ? 1 : speed;
-    this.worldScene?.applyTimelineState(evaluated, this.isPlaying ? playbackRate : 0);
+    this.worldScene?.applyTimelineState(evaluated, 1);
 
     this.renderStatusChips(evaluated);
     this.renderThought(evaluated);
@@ -821,15 +765,6 @@ class ViewerApp {
         this.renderFrame();
       },
     });
-
-    this.timelineBar.update({
-      isLive: this.isLive,
-      isPlaying: this.isPlaying,
-      speed,
-      events: this.events,
-      evaluated,
-      lang: this.lang,
-    });
   }
 
   private renderThought(evaluated: TimelineState): void {
@@ -848,10 +783,12 @@ class ViewerApp {
 
     if (!thought && !thinking) return;
 
+    const langTag = el("span", { class: "tag" });
     const headerRow = el(
       "div",
       { class: "thought-bubble-header" },
       el("div", { class: "thought-bubble-label" }, t(this.lang, "thoughtBubbleLabel")),
+      this.lang === "en" ? null : langTag,
       thoughtLogId != null
         ? el("span", { class: "thought-bubble-cta" }, `${t(this.lang, "inspectContext")} ↗`)
         : null,
@@ -861,11 +798,14 @@ class ViewerApp {
     if (thought) {
       const text = el("p", { class: "thought-bubble-text" }, thought);
       this.thoughtOverlayEl.append(text);
-      if (this.lang === "pt-BR") {
-        void translateDynamic(thought, this.lang).then((res) => {
-          text.textContent = res.isFallback ? `${res.text} [EN]` : res.text;
-        });
-      }
+      bindTranslation(
+        text,
+        langTag,
+        thought,
+        this.lang,
+        null,
+        thoughtLogId != null ? entityFallback(this.api, "log_entries", thoughtLogId) : undefined,
+      );
     }
 
     if (thoughtLogId != null) {
@@ -924,12 +864,20 @@ class ViewerApp {
 
     const list = el("ul", { class: "recent-feed-list" });
     for (const item of items) {
+      const recentText = el("span", { class: "recent-text" }, item.label);
+      if (item.tone === "thought" && item.logId != null) {
+        const logId = item.logId;
+        bindTranslation(recentText, null, item.label, this.lang, null, async () => {
+          const full = await this.api.translateEntity("log_entries", logId);
+          return full ? truncate(full, 52) : null;
+        });
+      }
       const content = el(
         "span",
         { class: "recent-feed-item-inner" },
         el("span", { class: `recent-dot tone-${item.tone}` }),
         el("span", { class: "recent-time tabular-num" }, item.timeText),
-        el("span", { class: "recent-text" }, item.label),
+        recentText,
       );
       if (item.logId != null) {
         const logId = item.logId;
@@ -1069,6 +1017,7 @@ class ViewerApp {
         actions: t(this.lang, "navActions"),
         memories: t(this.lang, "navMemories"),
         questions: t(this.lang, "navQuestionsLessons"),
+        searches: t(this.lang, "navSearches"),
       };
       return this.lifeTab === "live" ? t(this.lang, "navLive") : titles[this.lifeTab];
     }
@@ -1140,6 +1089,7 @@ class ViewerApp {
         ["actions", t(this.lang, "navActions")],
         ["memories", t(this.lang, "navMemories")],
         ["questions", t(this.lang, "navQuestionsLessons")],
+        ["searches", t(this.lang, "navSearches")],
       ];
       for (const [id, label] of lifeTabs) {
         switcher.appendChild(
@@ -1161,8 +1111,12 @@ class ViewerApp {
     this.tabPopupHeaderEl.append(titleRow, switcher);
   }
 
-  private async renderActiveContentTab(): Promise<void> {
+  private renderToken = 0;
+
+  private async renderActiveContentTab(keepScroll = false): Promise<void> {
     if (!this.popupOpen) return;
+    const token = ++this.renderToken;
+    const scrollTop = keepScroll ? this.tabPopupBodyEl.scrollTop : 0;
     const popupBody = el("div", { class: "tab-popup-body" });
     this.tabPopupBodyEl.replaceWith(popupBody);
     this.tabPopupBodyEl = popupBody;
@@ -1182,6 +1136,8 @@ class ViewerApp {
         inspect,
       );
     }
+    // A newer render replaced this one while it was loading; do not touch its scroll.
+    if (keepScroll && token === this.renderToken) popupBody.scrollTop = scrollTop;
   }
 
   private setLang(lang: UiLang): void {
@@ -1193,8 +1149,13 @@ class ViewerApp {
       this.renderPopupHeader();
       void this.renderActiveContentTab();
     }
+    if (!this.contextModalEl.hidden) {
+      const openId = Number(this.contextModalEl.dataset["entryId"] ?? 0);
+      if (openId > 0) void openContextModal(this.contextModalEl, this.api, openId, this.lang);
+    }
     if (this.searchOpen) {
-      this.renderSearch(false);
+      if (this.searchQuery) void this.executeSearch();
+      else this.renderSearch(false);
     }
   }
 
@@ -1224,6 +1185,7 @@ class ViewerApp {
       this.searchCategory,
       this.lang,
       {
+        api: this.api,
         onSubmitQuery: (query) => {
           this.searchQuery = query;
           void this.executeSearch();

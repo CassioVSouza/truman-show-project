@@ -322,6 +322,9 @@ SELECT pg_temp.assert(api_list('decisions') @> '[{"intent":"see closer"}]', 'dec
 SELECT pg_temp.assert(api_list('traces')->0 ? 'response_preview' AND NOT (api_list('traces')->0 ? 'system_prompt'), 'traces list has preview only');
 SELECT pg_temp.assert(jsonb_array_length(api_list('organism')) = 1, 'organism list');
 SELECT pg_temp.assert(jsonb_array_length(api_log('perception')) >= 1, 'log page by kind');
+SELECT pg_temp.assert((SELECT bool_and((a->>'id')::bigint > (b->>'id')::bigint) FROM (
+  SELECT x AS a, lead(x) OVER () AS b FROM jsonb_array_elements(api_log()) x) q WHERE b IS NOT NULL) IS NOT FALSE, 'api_log is newest first');
+SELECT pg_temp.assert(api_list('journal') IS NOT NULL AND api_list('searches') IS NOT NULL AND api_list('beliefs') IS NOT NULL AND api_list('dreams') IS NOT NULL, 'log-derived lists run');
 DO $$
 BEGIN
   BEGIN PERFORM api_list('users'); PERFORM pg_temp.assert(false, 'unknown list accepted'); EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
@@ -345,7 +348,19 @@ BEGIN
   PERFORM pg_temp.assert((SELECT text_en FROM api_search('pastando', 'pt') LIMIT 1) = 'zebra grazing near the river', 'pt result keeps the english original');
   PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('pastando', 'en')), 'en search does not read translations');
   PERFORM pg_temp.assert(usage_try('t_cap', 2) AND usage_try('t_cap', 2) AND NOT usage_try('t_cap', 2), 'daily cap enforced');
+  -- api_log translated field
+  PERFORM pg_temp.assert((SELECT x->>'translated' FROM jsonb_array_elements(api_log(NULL, NULL, NULL, 0, 200, 'pt')) x WHERE (x->>'id')::bigint = pid) = 'zebra pastando perto do rio', 'api_log pt carries translated');
+  PERFORM pg_temp.assert((SELECT x->'translated' FROM jsonb_array_elements(api_log(NULL, NULL, NULL, 0, 200, 'en')) x WHERE (x->>'id')::bigint = pid) = 'null'::jsonb, 'api_log en has translated null');
+  PERFORM pg_temp.assert(api_list('searches', NULL, 30, 'pt') IS NOT NULL, 'searches list accepts lang');
+  -- 0009: untranslated batch skips cached and hidden rows; reserve and refund of the daily cap
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(translation_untranslated(20, 'pt')) x WHERE (x->>'id')::bigint = pid), 'untranslated skips cached');
+  PERFORM pg_temp.assert(jsonb_array_length(translation_untranslated(1, 'pt')) <= 1, 'untranslated limit respected');
+  PERFORM pg_temp.assert(usage_try_reserved('t_res', 5, 2) AND usage_try_reserved('t_res', 5, 2) AND usage_try_reserved('t_res', 5, 2) AND NOT usage_try_reserved('t_res', 5, 2), 'reserve leaves slots for on-demand');
+  PERFORM pg_temp.assert(usage_try('t_res', 5), 'reserved slot still usable on demand');
+  PERFORM pg_temp.assert(usage_refund('t_res') AND usage_try('t_res', 5), 'refund gives one slot back');
+  PERFORM pg_temp.assert(NOT usage_refund('t_never_used'), 'refund never goes below zero');
   PERFORM admin_hide(pid, true);
+  PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(api_log(NULL, NULL, NULL, 0, 200, 'pt')) x WHERE (x->>'id')::bigint = pid), 'hidden entry absent from api_log pt');
   PERFORM pg_temp.assert(NOT EXISTS (SELECT 1 FROM api_search('pastando', 'pt')), 'hidden entry not found via pt either');
   PERFORM pg_temp.assert(translation_source('log_entries', pid) IS NULL, 'hidden entry not translatable');
   PERFORM admin_hide(pid, false);

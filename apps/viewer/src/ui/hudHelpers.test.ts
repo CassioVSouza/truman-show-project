@@ -1,7 +1,6 @@
 import { SCHEMA_VERSION, type Event } from "@truman/contracts";
 import { describe, expect, it } from "vitest";
 import {
-  buildTimelineMarkers,
   computeVitalTrends,
   extractRecentActivity,
   formatDecisionCountdown,
@@ -136,65 +135,6 @@ describe("hudHelpers", () => {
     });
   });
 
-  it("maps timeline events to color-coded markers and deduplicates close markers by priority", () => {
-    const events: Event[] = [
-      {
-        v: SCHEMA_VERSION,
-        seq: 1,
-        t_start: isoAt(10),
-        t_end: isoAt(20),
-        actor: "resident",
-        kind: "walk",
-        data: {
-          waypoints: [
-            { x: 0, z: 0 },
-            { x: 1, z: 1 },
-          ],
-          speed: 1.2,
-        },
-        log_id: 10,
-      },
-      {
-        v: SCHEMA_VERSION,
-        seq: 2,
-        t_start: isoAt(10),
-        t_end: isoAt(25),
-        actor: "resident",
-        kind: "thought",
-        data: { text: "The wind feels colder near the river." },
-        log_id: 11,
-      },
-      {
-        v: SCHEMA_VERSION,
-        seq: 3,
-        t_start: isoAt(60),
-        t_end: isoAt(70),
-        actor: "resident",
-        kind: "death",
-        data: { cause: "hypothermia" },
-        log_id: 12,
-      },
-      {
-        v: SCHEMA_VERSION,
-        seq: 4,
-        t_start: isoAt(30),
-        t_end: isoAt(35),
-        actor: "world",
-        kind: "world",
-        data: { weather: "clear", time_of_day: "day" },
-        log_id: 13,
-      },
-    ];
-
-    const markers = buildTimelineMarkers(events, BASE_MS, BASE_MS + 100_000);
-    // world event is ignored; walk + thought at 10s collapse to higher-priority thought
-    expect(markers).toHaveLength(2);
-    expect(markers[0]?.tone).toBe("thought");
-    expect(markers[0]?.pct).toBeCloseTo(10, 1);
-    expect(markers[1]?.tone).toBe("alert");
-    expect(markers[1]?.pct).toBeCloseTo(60, 1);
-  });
-
   it("computes vital trends with noise thresholds", () => {
     const prev = {
       health: 90,
@@ -230,44 +170,6 @@ describe("hudHelpers", () => {
       stamina: "up",
       sleep_pressure: "flat",
     });
-  });
-
-  it("keeps markers from multiple decisions and gives playback priority over a same-time thinking cue", () => {
-    const events: Event[] = [
-      {
-        v: SCHEMA_VERSION,
-        actor: "resident",
-        kind: "anim",
-        seq: 1,
-        t_start: isoAt(0),
-        t_end: isoAt(5),
-        data: { name: "thinking" },
-        log_id: null,
-      },
-      {
-        v: SCHEMA_VERSION,
-        actor: "resident",
-        kind: "anim",
-        seq: 2,
-        t_start: isoAt(180),
-        t_end: isoAt(185),
-        data: { name: "thinking" },
-        log_id: null,
-      },
-      {
-        v: SCHEMA_VERSION,
-        actor: "resident",
-        kind: "anim",
-        seq: 3,
-        t_start: isoAt(180),
-        t_end: isoAt(195),
-        data: { name: "make_fire" },
-        log_id: null,
-      },
-    ];
-    expect(
-      buildTimelineMarkers(events, BASE_MS, BASE_MS + 360_000).map((marker) => marker.seq),
-    ).toEqual([1, 3]);
   });
 
   it("extracts up to 3 most recent meaningful activity items up to playhead", () => {
@@ -330,7 +232,7 @@ describe("hudHelpers", () => {
     expect(resolveShortcut({ key: "1" })).toBe("camera-follow");
     expect(resolveShortcut({ key: "2" })).toBe("camera-cabin");
     expect(resolveShortcut({ key: "3" })).toBe("camera-world");
-    expect(resolveShortcut({ key: " " })).toBe("toggle-play");
+    expect(resolveShortcut({ key: " " })).toBeNull();
     expect(resolveShortcut({ key: "h" })).toBe("toggle-cinema");
     expect(resolveShortcut({ key: "H" })).toBe("toggle-cinema");
     expect(resolveShortcut({ key: "/" })).toBe("search");
