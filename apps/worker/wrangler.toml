@@ -10,3 +10,7 @@ SUPABASE_URL = "https://suadfgpoprtormoomqyw.supabase.co"   # base URL only, non
 
 [triggers]
 crons = ["*/3 * * * *"]   # TICK_MINUTES = 3; see docs/05
+
+# Workers AI (translation fallback, doc 05). Free: 10,000 neurons/day, no card; requests fail at the cap, never billed on Workers Free.
+[ai]
+binding = "AI"

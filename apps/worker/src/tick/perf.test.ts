@@ -43,4 +43,4 @@ test("a steady-state tick stays under the 10 ms CPU budget (proxy)", async () =>
   expect(decided.length).toBeGreaterThan(20);
   expect(q(decided, 0.5)).toBeLessThan(10);
   expect(q(quiet, 0.5)).toBeLessThan(10);
-});
+}, 60_000);

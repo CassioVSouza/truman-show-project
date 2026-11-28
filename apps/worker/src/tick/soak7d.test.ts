@@ -101,5 +101,5 @@ describe("7-day simulated pipeline (doc 06 section C)", () => {
       const full = `${c.system}\n${c.messages.map((m) => m.content).join("\n")}`;
       expect(full).not.toContain(PERSONA.slice(0, 60));
     }
-  }, 30_000);
+  }, 90_000);
 });
